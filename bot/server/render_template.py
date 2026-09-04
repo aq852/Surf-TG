@@ -13,13 +13,6 @@ from bot.telegram import StreamBot
 
 db = Database()
 
-admin_block = """
-                    <style>
-                        .admin-only {
-                            display: none;
-                        }
-                    </style>"""
-
 hide_channel = """
                     <style>
                         .hide-channel {
@@ -43,20 +36,19 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
     if route == 'home':
         async with aiopen(ospath.join(tpath, 'home.html'), 'r') as f:
             html = (await f.read()).replace("<!-- Print -->", html).replace("<!-- Theme -->", theme.lower()).replace("<!-- Playlist -->", playlist)
-            if not is_admin:
-                html += admin_block
-                if Telegram.HIDE_CHANNEL:
-                    html += hide_channel
+            if not is_admin and Telegram.HIDE_CHANNEL:
+                html += hide_channel
     elif route == 'playlist':
         async with aiopen(ospath.join(tpath, 'playlist.html'), 'r') as f:
             html = (await f.read()).replace("<!-- Theme -->", theme.lower()).replace("<!-- Playlist -->", playlist).replace("<!-- Database -->", database).replace("<!-- Title -->", msg).replace("<!-- Parent_id -->", id)
-            if not is_admin:
-                html += admin_block
     elif route == 'index':
         async with aiopen(ospath.join(tpath, 'index.html'), 'r') as f:
             html = (await f.read()).replace("<!-- Print -->", html).replace("<!-- Theme -->", theme.lower()).replace("<!-- Title -->", msg).replace("<!-- Chat_id -->", chat_id)
-            if not is_admin:
-                html += admin_block
+    if route in {'home', 'playlist', 'index'}:
+        if not is_admin:
+            html = re.sub(r'<!-- ADMIN_START -->.*?<!-- ADMIN_END -->', '', html, flags=re.DOTALL)
+        else:
+            html = html.replace('<!-- ADMIN_START -->', '').replace('<!-- ADMIN_END -->', '')
     else:
         claim = verify_stream_token(Telegram.SECRET_KEY, secure_hash)
         if claim.chat_id != int(chat_id) or claim.message_id != int(id):

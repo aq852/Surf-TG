@@ -51,25 +51,35 @@ async def posts_chat(channels):
     return ''.join(phtml.format(cid=str(channel["chat-id"]).replace("-100", ""), img=f"/api/thumb/{channel['chat-id']}", title=escape(str(channel["title"])), ctype=escape(str(channel['type']))) for channel in channels)
 
 
-async def post_playlist(playlists):
+async def post_playlist(playlists, is_admin=False):
     dhtml = """
     <div class="col">
         <div class="card profile-card text-white bg-primary mb-2">
             <a href="/playlist?db={cid}"><div class="img-container"><img class="lzy_img" data-src="{img}" alt="{title}"></div><div class="card-body"><h6 class="card-title">{title}</h6><span class="badge">Collection</span></div></a>
-            <details class="admin-only" style="padding:0 15px 15px"><summary>Edit</summary><form action="/edit" method="post"><input type="hidden" name="folder_id" value="{cid}"><input type="hidden" name="parent" value="{ctype}"><label>Name</label><input class="form-control" name="folderName" value="{title}" required><label>Cover URL</label><input class="form-control" name="thumbnail" value="{img}"><div class="actions" style="margin-top:10px"><button class="btn btn-primary btn-sm">Save</button><button type="button" class="btn btn-danger btn-sm" onclick="deleteRecord('{cid}','{ctype}')">Delete</button></div></form></details>
+            {admin_controls}
         </div>
     </div>
     """
 
-    return ''.join(dhtml.format(cid=playlist["_id"], img=escape(str(playlist.get("thumbnail", "")), quote=True), title=escape(str(playlist["name"])), ctype=escape(str(playlist['parent_folder']))) for playlist in playlists)
+    cards = []
+    for playlist in playlists:
+        cid = str(playlist["_id"])
+        img = escape(str(playlist.get("thumbnail", "")), quote=True)
+        title = escape(str(playlist["name"]), quote=True)
+        parent = escape(str(playlist['parent_folder']), quote=True)
+        controls = ''
+        if is_admin:
+            controls = f'<details style="padding:0 15px 15px"><summary>Edit</summary><form action="/edit" method="post"><input type="hidden" name="folder_id" value="{cid}"><input type="hidden" name="parent" value="{parent}"><label>Name</label><input class="form-control" name="folderName" value="{title}" required><label>Cover URL</label><input class="form-control" name="thumbnail" value="{img}"><div class="actions" style="margin-top:10px"><button class="btn btn-primary btn-sm">Save</button><button type="button" class="btn btn-danger btn-sm" onclick="deleteRecord(\'{cid}\',\'{parent}\')">Delete</button></div></form></details>'
+        cards.append(dhtml.format(cid=cid, img=img, title=title, ctype=parent, admin_controls=controls))
+    return ''.join(cards)
 
 
-async def posts_db_file(posts):
+async def posts_db_file(posts, is_admin=False):
     phtml = """
     <div class="col">
         <div class="card text-white bg-primary mb-2">
             <a href="/watch/{chat_id}?id={id}&hash={hash}"><img data-src="{img}" class="card-img-top lzy_img" alt="{title}"><div class="card-body"><h6 class="card-title">{title}</h6><span class="badge">{type}</span><span class="badge">{size}</span></div></a>
-            <details class="admin-only" style="padding:0 15px 15px"><summary>Edit</summary><form action="/edit_post" method="post"><input type="hidden" name="file_id" value="{cid}"><input type="hidden" name="file_folder_id" value="{ctype}"><label>Name</label><input class="form-control" name="fileName" value="{title}" required><label>Cover URL</label><input class="form-control" name="filethumbnail" value="{img}"><div class="actions" style="margin-top:10px"><button class="btn btn-primary btn-sm">Save</button><button type="button" class="btn btn-danger btn-sm" onclick="deleteRecord('{cid}','{ctype}')">Delete</button></div></form></details>
+            {admin_controls}
         </div>
     </div>
 """
@@ -82,6 +92,10 @@ async def posts_db_file(posts):
             cid=post["_id"], chat_id=str(chat_id).replace("-100", ""), id=message_id,
             img=escape(str(post.get("thumbnail", "")), quote=True), title=escape(str(post["name"])),
             hash=token, size=escape(str(post['size'])), type=escape(str(post['file_type'])),
-            ctype=escape(str(post["parent_folder"]))
+            ctype=escape(str(post["parent_folder"])),
+            admin_controls=(
+                f'<details style="padding:0 15px 15px"><summary>Edit</summary><form action="/edit_post" method="post"><input type="hidden" name="file_id" value="{post["_id"]}"><input type="hidden" name="file_folder_id" value="{escape(str(post["parent_folder"]), quote=True)}"><label>Name</label><input class="form-control" name="fileName" value="{escape(str(post["name"]), quote=True)}" required><label>Cover URL</label><input class="form-control" name="filethumbnail" value="{escape(str(post.get("thumbnail", "")), quote=True)}"><div class="actions" style="margin-top:10px"><button class="btn btn-primary btn-sm">Save</button><button type="button" class="btn btn-danger btn-sm" onclick="deleteRecord(\'{post["_id"]}\',\'{escape(str(post["parent_folder"]), quote=True)}\')">Delete</button></div></form></details>'
+                if is_admin else ''
+            )
         ).replace("&hash=", "&token="))
     return ''.join(cards)

@@ -17,8 +17,10 @@ os.environ.update({
 })
 
 from aiohttp.test_utils import AioHTTPTestCase
+from unittest.mock import AsyncMock, patch
 
 from bot.server import web_server
+from bot.server.render_template import render_page
 
 
 class WebSmokeTests(AioHTTPTestCase):
@@ -55,3 +57,21 @@ class WebSmokeTests(AioHTTPTestCase):
             msg=f"history={response.history!r} body={await response.text()!r}",
         )
         self.assertIn("surftg_session", response.cookies)
+
+    async def test_viewer_html_contains_no_admin_controls(self):
+        with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
+            html = await render_page(
+                None, None, route="home", html="", playlist="", is_admin=False
+            )
+        self.assertNotIn("Library settings", html)
+        self.assertNotIn("Create a collection", html)
+        self.assertNotIn("ADMIN_START", html)
+
+    async def test_admin_html_contains_admin_controls(self):
+        with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
+            html = await render_page(
+                None, None, route="home", html="", playlist="", is_admin=True
+            )
+        self.assertIn("Library settings", html)
+        self.assertIn("Create a collection", html)
+        self.assertNotIn("ADMIN_START", html)

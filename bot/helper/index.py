@@ -58,14 +58,12 @@ async def get_files(chat_id, page=1):
     save_cache(chat_id, {"posts": posts}, page)
     return posts
 
-async def posts_file(posts, chat_id):
+async def posts_file(posts, chat_id, is_admin=False):
     phtml = """
             <div class="col">
                 
                     <div class="card text-white bg-primary mb-3">
-                        <input type="checkbox" class="admin-only form-check-input position-absolute top-0 end-0 m-2"
-                            onchange="checkSendButton()" id="selectCheckbox"
-                            data-id="{id}|{hash}|{title}|{size}|{type}|{img}">
+        {admin_checkbox}
                         <img src="/static/placeholder.svg" class="lzy_img card-img-top rounded-top"
                             data-src="{img}" alt="{title}">
                         <a href="/watch/{chat_id}?id={id}&hash={hash}">
@@ -88,6 +86,14 @@ async def posts_file(posts, chat_id):
             chat_id=str(chat_id).replace("-100", ""), id=int(post["msg_id"]),
             img=f"/api/thumb/{chat_id}?id={int(post['msg_id'])}",
             title=escape(str(post["title"])), hash=token,
-            size=escape(str(post['size'])), type=escape(str(post['type']))
+            size=escape(str(post['size'])), type=escape(str(post['type'])),
+            admin_checkbox=(
+                '<input type="checkbox" class="form-check-input position-absolute top-0 end-0 m-2" '
+                'onchange="checkSendButton()" id="selectCheckbox" '
+                f'data-id="{int(post["msg_id"])}|{token}|{escape(str(post["title"]), quote=True)}|'
+                f'{escape(str(post["size"]), quote=True)}|{escape(str(post["type"]), quote=True)}|'
+                f'/api/thumb/{chat_id}?id={int(post["msg_id"])}">'
+                if is_admin else ''
+            )
         ).replace("&hash=", "&token="))
     return ''.join(cards)
