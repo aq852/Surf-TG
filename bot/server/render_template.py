@@ -49,6 +49,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             html = re.sub(r'<!-- ADMIN_START -->.*?<!-- ADMIN_END -->', '', html, flags=re.DOTALL)
         else:
             html = html.replace('<!-- ADMIN_START -->', '').replace('<!-- ADMIN_END -->', '')
+        html = html.replace('<!-- AccountRole -->', 'Administrator' if is_admin else 'Viewer')
     else:
         claim = verify_stream_token(Telegram.SECRET_KEY, secure_hash)
         if claim.chat_id != int(chat_id) or claim.message_id != int(id):

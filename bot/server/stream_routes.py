@@ -50,8 +50,6 @@ async def login_form(request):
 @routes.post('/login')
 async def login_route(request):
     session = await get_session(request)
-    if 'user' in session:
-        raise web.HTTPFound('/')
     data = await request.post()
     username = data.get('username')
     password = data.get('password')

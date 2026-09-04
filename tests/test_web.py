@@ -58,6 +58,24 @@ class WebSmokeTests(AioHTTPTestCase):
         )
         self.assertIn("surftg_session", response.cookies)
 
+    async def test_relogin_does_not_silently_keep_old_account(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        first = await self.client.post(
+            "/login",
+            data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        self.assertEqual(first.status, 302)
+        second = await self.client.post(
+            "/login",
+            data={"username": "viewer", "password": "wrong"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        self.assertEqual(second.status, 200)
+        self.assertIn("Invalid username or password", await second.text())
+
     async def test_viewer_html_contains_no_admin_controls(self):
         with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
             html = await render_page(
@@ -66,6 +84,7 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertNotIn("Library settings", html)
         self.assertNotIn("Create a collection", html)
         self.assertNotIn("ADMIN_START", html)
+        self.assertIn("Viewer", html)
 
     async def test_admin_html_contains_admin_controls(self):
         with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
@@ -75,3 +94,4 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("Library settings", html)
         self.assertIn("Create a collection", html)
         self.assertNotIn("ADMIN_START", html)
+        self.assertIn("Administrator", html)
