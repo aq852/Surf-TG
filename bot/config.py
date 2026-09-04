@@ -42,3 +42,13 @@ class Telegram:
             raise RuntimeError("Set PASSWORD_HASH (recommended) or VIEWER_PASSWORD")
         if not cls.ADMIN_PASSWORD_HASH and cls.ADMIN_PASSWORD in {"", "surfTG"}:
             raise RuntimeError("Set ADMIN_PASSWORD_HASH (recommended) or a non-default ADMIN_PASSWORD")
+        for variable, value in (
+            ("PASSWORD_HASH", cls.PASSWORD_HASH),
+            ("ADMIN_PASSWORD_HASH", cls.ADMIN_PASSWORD_HASH),
+        ):
+            if value and not value.startswith("pbkdf2_sha256$"):
+                raise RuntimeError(
+                    f"{variable} contains a plain password. Leave it empty to use the "
+                    "plain-password fallback, or generate a real hash with: "
+                    "python -m bot.helper.security"
+                )

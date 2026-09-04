@@ -27,6 +27,9 @@ class SecurityTests(unittest.TestCase):
         with self.assertRaises(StreamTokenError):
             verify_stream_token("s" * 32, token, now=111)
 
+    def test_plain_password_is_not_accepted_as_a_hash(self):
+        self.assertFalse(verify_password("secret", "secret"))
+
 
 if __name__ == "__main__":
     unittest.main()
