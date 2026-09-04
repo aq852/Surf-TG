@@ -1,1 +1,3 @@
-python3 update.py && python3 -m bot
+#!/usr/bin/env sh
+set -eu
+exec python3 -m bot

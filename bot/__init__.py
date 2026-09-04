@@ -1,9 +1,12 @@
 from time import time
 from logging import getLogger, FileHandler, StreamHandler, INFO, ERROR, basicConfig
 
-from uvloop import install
-
-install()
+try:
+    from uvloop import install
+    install()
+except (ImportError, NotImplementedError):
+    # uvloop is unavailable on Windows; asyncio's default loop works correctly.
+    pass
 basicConfig(format="[%(asctime)s] [%(levelname)s] - %(message)s",
             datefmt="%d-%b-%y %I:%M:%S %p",
             handlers=[FileHandler('log.txt'), StreamHandler()],
@@ -16,5 +19,5 @@ getLogger("aiohttp.web").setLevel(ERROR)
 LOGGER = getLogger(__name__)
 StartTime = time()
 
-__version__ = "1.2.6"
+__version__ = "2.0.0"
 

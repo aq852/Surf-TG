@@ -1,11 +1,13 @@
 from os.path import splitext
 import re
+from html import escape
 from bot.config import Telegram
 from bot.helper.database import Database
 from bot.telegram import StreamBot, UserBot
 from bot.helper.file_size import get_readable_file_size
 from bot.helper.cache import get_cache, save_cache
 from asyncio import gather
+from bot.helper.security import create_stream_token
 
 db = Database()
 
@@ -64,7 +66,7 @@ async def posts_file(posts, chat_id):
                         <input type="checkbox" class="admin-only form-check-input position-absolute top-0 end-0 m-2"
                             onchange="checkSendButton()" id="selectCheckbox"
                             data-id="{id}|{hash}|{title}|{size}|{type}|{img}">
-                        <img src="https://cdn.jsdelivr.net/gh/weebzone/weebzone/data/Surf-TG/src/loading.gif" class="lzy_img card-img-top rounded-top"
+                        <img src="/static/placeholder.svg" class="lzy_img card-img-top rounded-top"
                             data-src="{img}" alt="{title}">
                         <a href="/watch/{chat_id}?id={id}&hash={hash}">
                         <div class="card-body p-1">
@@ -77,4 +79,15 @@ async def posts_file(posts, chat_id):
                 
             </div>
 """
-    return ''.join(phtml.format(chat_id=str(chat_id).replace("-100", ""), id=post["msg_id"], img=f"/api/thumb/{chat_id}?id={post['msg_id']}", title=post["title"], hash=post["hash"], size=post['size'], type=post['type']) for post in posts)
+    cards = []
+    for post in posts:
+        token = create_stream_token(
+            Telegram.SECRET_KEY, int(chat_id), int(post["msg_id"]), ttl=Telegram.STREAM_TOKEN_TTL
+        )
+        cards.append(phtml.format(
+            chat_id=str(chat_id).replace("-100", ""), id=int(post["msg_id"]),
+            img=f"/api/thumb/{chat_id}?id={int(post['msg_id'])}",
+            title=escape(str(post["title"])), hash=token,
+            size=escape(str(post['size'])), type=escape(str(post['type']))
+        ).replace("&hash=", "&token="))
+    return ''.join(cards)

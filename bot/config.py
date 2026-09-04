@@ -1,4 +1,5 @@
 from os import getenv
+import secrets
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -14,12 +15,30 @@ class Telegram:
     BASE_URL = getenv("BASE_URL", "").rstrip('/')
     DATABASE_URL = getenv("DATABASE_URL", "")
     AUTH_CHANNEL = [channel.strip() for channel in getenv("AUTH_CHANNEL", "").split(",") if channel.strip()]
+    ALLOWED_TELEGRAM_USERS = {int(user) for user in getenv("ALLOWED_TELEGRAM_USERS", "").split(",") if user.strip()}
     THEME = getenv("THEME", "quartz").lower()
-    USERNAME = getenv("USERNAME", "admin")
-    PASSWORD = getenv("PASSWORD", "admin")
+    USERNAME = getenv("VIEWER_USERNAME", "viewer")
+    PASSWORD = getenv("VIEWER_PASSWORD", "")
     ADMIN_USERNAME = getenv("ADMIN_USERNAME", "surfTG")
     ADMIN_PASSWORD = getenv("ADMIN_PASSWORD", "surfTG")
+    PASSWORD_HASH = getenv("PASSWORD_HASH", "")
+    ADMIN_PASSWORD_HASH = getenv("ADMIN_PASSWORD_HASH", "")
+    SECRET_KEY = getenv("SECRET_KEY", "")
+    STREAM_TOKEN_TTL = int(getenv("STREAM_TOKEN_TTL", "21600"))
+    COOKIE_SECURE = getenv("COOKIE_SECURE", "true").lower() in {"1", "true", "yes", "on"}
     SLEEP_THRESHOLD = int(getenv('SLEEP_THRESHOLD', '60'))
     WORKERS = int(getenv('WORKERS', '10'))
-    MULTI_CLIENT = getenv('MULTI_CLIENT', 'False')
-    HIDE_CHANNEL = getenv('HIDE_CHANNEL', 'False')
+    MULTI_CLIENT = getenv('MULTI_CLIENT', 'False').lower() in {"1", "true", "yes", "on"}
+    HIDE_CHANNEL = getenv('HIDE_CHANNEL', 'False').lower() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def validate(cls):
+        missing = [name for name in ("API_ID", "API_HASH", "BOT_TOKEN", "DATABASE_URL") if not getattr(cls, name)]
+        if missing:
+            raise RuntimeError(f"Missing required configuration: {', '.join(missing)}")
+        if len(cls.SECRET_KEY) < 32:
+            raise RuntimeError("SECRET_KEY must be at least 32 random characters")
+        if not cls.PASSWORD_HASH and not cls.PASSWORD:
+            raise RuntimeError("Set PASSWORD_HASH (recommended) or VIEWER_PASSWORD")
+        if not cls.ADMIN_PASSWORD_HASH and cls.ADMIN_PASSWORD in {"", "surfTG"}:
+            raise RuntimeError("Set ADMIN_PASSWORD_HASH (recommended) or a non-default ADMIN_PASSWORD")

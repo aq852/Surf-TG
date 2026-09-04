@@ -1,11 +1,12 @@
 import re
+from html import escape
 from aiofiles import open as aiopen
 from os import path as ospath
 
 from bot import LOGGER
 from bot.config import Telegram
 from bot.helper.database import Database
-from bot.helper.exceptions import InvalidHash
+from bot.helper.security import StreamTokenError, verify_stream_token
 from bot.helper.file_size import get_readable_file_size
 from bot.server.file_properties import get_file_ids
 from bot.telegram import StreamBot
@@ -28,14 +29,18 @@ hide_channel = """
 
 
 async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id=''):
-    theme = await db.get_variable('theme')
-    if theme is None or theme == '':
-        theme = Telegram.THEME
     tpath = ospath.join('bot', 'server', 'template')
     if route == 'login':
-        async with aiopen(ospath.join(tpath, 'login.html'), 'r') as f:
-            html = (await f.read()).replace("<!-- Error -->", msg or '').replace("<!-- Theme -->", theme.lower()).replace("<!-- RedirectURL -->", redirect_url)
-    elif route == 'home':
+        async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r') as f:
+            error = f'<div class="alert">{escape(msg)}</div>' if msg else ''
+            return (await f.read()).replace("<!-- ErrorBlock -->", error)
+    try:
+        theme = await db.get_variable('theme')
+    except Exception:
+        theme = None
+    if theme is None or theme == '':
+        theme = Telegram.THEME
+    if route == 'home':
         async with aiopen(ospath.join(tpath, 'home.html'), 'r') as f:
             html = (await f.read()).replace("<!-- Print -->", html).replace("<!-- Theme -->", theme.lower()).replace("<!-- Playlist -->", playlist)
             if not is_admin:
@@ -53,17 +58,15 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             if not is_admin:
                 html += admin_block
     else:
+        claim = verify_stream_token(Telegram.SECRET_KEY, secure_hash)
+        if claim.chat_id != int(chat_id) or claim.message_id != int(id):
+            raise StreamTokenError("token does not match media")
         file_data = await get_file_ids(StreamBot, chat_id=int(chat_id), message_id=int(id))
-        if file_data.unique_id[:6] != secure_hash:
-            LOGGER.info('Link hash: %s - %s', secure_hash,
-                        file_data.unique_id[:6])
-            LOGGER.info('Invalid hash for message with - ID %s', id)
-            raise InvalidHash
         filename, tag, size = file_data.file_name, file_data.mime_type.split(
             '/')[0].strip(), get_readable_file_size(file_data.file_size)
         if filename is None:
             filename = "Proper Filename is Missing"
-        filename = re.sub(r'[,|_\',]', ' ', filename)
+        filename = escape(re.sub(r'[,|_\',]', ' ', filename))
         if tag == 'video':
             async with aiopen(ospath.join(tpath, 'video.html')) as r:
                 poster = f"/api/thumb/{chat_id}?id={id}"

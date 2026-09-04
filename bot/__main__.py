@@ -13,6 +13,7 @@ from bot.telegram.clients import initialize_clients
 loop = get_event_loop()
 
 async def start_services():
+    Telegram.validate()
     LOGGER.info(f'Initializing Surf-TG v-{__version__}')
     await asleep(1.2)
     
