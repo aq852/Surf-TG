@@ -1,15 +1,20 @@
 import os
 
-os.environ.setdefault("API_ID", "1")
-os.environ.setdefault("API_HASH", "test")
-os.environ.setdefault("BOT_TOKEN", "1:test")
-os.environ.setdefault("DATABASE_URL", "mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=20")
-os.environ.setdefault("SECRET_KEY", "0123456789abcdef0123456789abcdef")
-os.environ.setdefault("VIEWER_PASSWORD", "viewer-safe-password")
-os.environ.setdefault("ADMIN_PASSWORD", "admin-safe-password")
-os.environ.setdefault("COOKIE_SECURE", "false")
-os.environ.setdefault("VIEWER_USERNAME", "viewer")
-os.environ.setdefault("ADMIN_USERNAME", "admin")
+# Explicit values keep the smoke tests isolated from a developer's config.env.
+os.environ.update({
+    "API_ID": "1",
+    "API_HASH": "test",
+    "BOT_TOKEN": "1:test",
+    "DATABASE_URL": "mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=20",
+    "SECRET_KEY": "0123456789abcdef0123456789abcdef",
+    "VIEWER_USERNAME": "viewer",
+    "VIEWER_PASSWORD": "viewer-safe-password",
+    "PASSWORD_HASH": "",
+    "ADMIN_USERNAME": "admin",
+    "ADMIN_PASSWORD": "admin-safe-password",
+    "ADMIN_PASSWORD_HASH": "",
+    "COOKIE_SECURE": "false",
+})
 
 from aiohttp.test_utils import AioHTTPTestCase
 
