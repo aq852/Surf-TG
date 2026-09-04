@@ -1,4 +1,4 @@
-from pymongo import DESCENDING, MongoClient
+from pymongo import DESCENDING, MongoClient, UpdateOne
 from bson import ObjectId
 from bot.config import Telegram
 import re
@@ -131,11 +131,15 @@ class Database:
             'msg_id', DESCENDING).skip(offset).limit(per_page)))
 
     async def add_tgfiles(self, chat_id, file_id, hash, name, size, file_type):
-        if await asyncio.to_thread(self.files.find_one, {"chat_id": chat_id, "msg_id": file_id}):
-            return
         file = {"chat_id": chat_id, "msg_id": file_id,
                 "hash": hash, "title": name, "size": size, "type": file_type}
-        await asyncio.to_thread(self.files.insert_one, file)
+        result = await asyncio.to_thread(
+            self.files.update_one,
+            {"chat_id": chat_id, "msg_id": file_id},
+            {"$setOnInsert": file},
+            upsert=True,
+        )
+        return result.upserted_id is not None
 
 
     async def search_tgfiles(self, id, query, page=1, per_page=50):
@@ -148,4 +152,15 @@ class Database:
             'msg_id', DESCENDING).skip(offset).limit(per_page)))
     
     async def add_btgfiles(self, data):
-        await asyncio.to_thread(self.files.insert_many, data)
+        operations = [
+            UpdateOne(
+                {"chat_id": str(file["chat_id"]), "msg_id": str(file["msg_id"])},
+                {"$setOnInsert": {**file, "chat_id": str(file["chat_id"]), "msg_id": str(file["msg_id"])}},
+                upsert=True,
+            )
+            for file in data
+        ]
+        if not operations:
+            return 0
+        result = await asyncio.to_thread(self.files.bulk_write, operations, ordered=False)
+        return result.upserted_count

@@ -1,6 +1,11 @@
 import asyncio
 from traceback import format_exc
 
+# Pyrofork captures the current event loop when a Client is constructed.  Create
+# the application loop before importing modules that construct Telegram clients.
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
 from aiohttp import web
 from pyrogram import idle
 
@@ -24,6 +29,8 @@ async def stop_clients():
 
 async def start_services():
     Telegram.validate()
+    if StreamBot.loop is not asyncio.get_running_loop():
+        raise RuntimeError("Telegram client was initialized on a different event loop")
     runner = None
     try:
         LOGGER.info("Initializing Surf-TG v-%s", __version__)
@@ -31,6 +38,8 @@ async def start_services():
         await StreamBot.start()
         StreamBot.username = StreamBot.me.username
         LOGGER.info("Bot Client: [@%s]", StreamBot.username)
+        handler_count = sum(len(handlers) for handlers in StreamBot.dispatcher.groups.values())
+        LOGGER.info("Telegram dispatcher ready with %s handlers", handler_count)
 
         if Telegram.SESSION_STRING:
             await UserBot.start()
@@ -55,12 +64,15 @@ async def start_services():
 
 def main():
     try:
-        asyncio.run(start_services())
+        loop.run_until_complete(start_services())
     except KeyboardInterrupt:
         LOGGER.info("Surf-TG stopped")
     except Exception:
         LOGGER.error(format_exc())
         raise SystemExit(1)
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
 
 
 if __name__ == "__main__":

@@ -20,8 +20,17 @@ db = Database()
 
 
 async def authorized_channels() -> set[str]:
-    configured = await db.get_variable("auth_channel")
-    values = configured.split(",") if configured and configured.strip() else Telegram.AUTH_CHANNEL
+    try:
+        configured = await db.get_variable("auth_channel")
+    except Exception as exc:
+        LOGGER.warning("Could not read AUTH_CHANNEL override from MongoDB: %s", exc)
+        configured = None
+    if isinstance(configured, str) and configured.strip():
+        values = configured.split(",")
+    elif configured is not None and not isinstance(configured, str):
+        values = configured if isinstance(configured, (list, tuple, set)) else [configured]
+    else:
+        values = Telegram.AUTH_CHANNEL
     return {str(value).strip() for value in values if str(value).strip()}
 
 
@@ -52,18 +61,27 @@ async def start_command(bot: Client, message: Message):
 
 @StreamBot.on_message(filters.command("index"))
 async def index_command(bot: Client, message: Message):
-    if str(message.chat.id) not in await authorized_channels():
-        await message.reply("This channel is not in AUTH_CHANNEL.")
-        return
     try:
+        channels = await authorized_channels()
+        LOGGER.info("/index received in channel %s; authorized=%s", message.chat.id, str(message.chat.id) in channels)
+        if str(message.chat.id) not in channels:
+            await message.reply(
+                f"This channel is not authorized. Its ID is `{message.chat.id}`. "
+                "Add it to AUTH_CHANNEL and restart the bot.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
         wait_message = await message.reply(
             "Indexing this channel now. Avoid uploading new files until it completes."
         )
         files = await get_messages(message.chat.id, 1, message.id)
-        if files:
-            await db.add_btgfiles(files)
+        indexed = await db.add_btgfiles(files) if files else 0
         await wait_message.delete()
-        await bot.send_message(message.chat.id, "Indexing complete. New uploads are added automatically.")
+        await bot.send_message(
+            message.chat.id,
+            f"Indexing complete. {indexed} new file(s) added; {len(files) - indexed} already existed. "
+            "New uploads are added automatically.",
+        )
     except FloodWait as exc:
         LOGGER.info("Indexing paused for %ss due to Telegram flood control", exc.value)
         await sleep(exc.value)
@@ -72,21 +90,36 @@ async def index_command(bot: Client, message: Message):
             disable_web_page_preview=True,
             parse_mode=ParseMode.MARKDOWN,
         )
+    except Exception:
+        LOGGER.exception("Channel indexing failed for channel %s", message.chat.id)
+        try:
+            await message.reply("Indexing failed. Check the Surf-TG terminal for the detailed error.")
+        except Exception:
+            pass
 
 
 @StreamBot.on_message(filters.channel & (filters.document | filters.video))
 async def file_receive_handler(bot: Client, message: Message):
-    if str(message.chat.id) not in await authorized_channels():
-        return
     try:
+        if str(message.chat.id) not in await authorized_channels():
+            LOGGER.info("Ignored file from unauthorized channel %s", message.chat.id)
+            return
         file = message.video or message.document
         title = file.file_name or message.caption or file.file_id
         title, _ = splitext(title)
         title = re.sub(r"[.,|_']", " ", title)
-        await db.add_tgfiles(
+        added = await db.add_tgfiles(
             str(message.chat.id), str(message.id), str(file.file_unique_id),
             title, get_readable_file_size(file.file_size), str(file.mime_type),
+        )
+        LOGGER.info(
+            "%s file from channel %s, message %s",
+            "Indexed" if added else "Skipped existing",
+            message.chat.id,
+            message.id,
         )
     except FloodWait as exc:
         LOGGER.info("Receiver paused for %ss due to Telegram flood control", exc.value)
         await sleep(exc.value)
+    except Exception:
+        LOGGER.exception("Automatic file indexing failed for channel %s, message %s", message.chat.id, message.id)

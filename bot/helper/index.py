@@ -6,36 +6,34 @@ from bot.helper.database import Database
 from bot.telegram import StreamBot, UserBot
 from bot.helper.file_size import get_readable_file_size
 from bot.helper.cache import get_cache, save_cache
-from asyncio import gather
+from bot import LOGGER
 from bot.helper.security import create_stream_token
 
 db = Database()
 
 
-async def fetch_message(chat_id, message_id):
-    try:
-        message = await StreamBot.get_messages(chat_id, message_id)
-        return message
-    except Exception as e:
-        return None
-
-
-async def get_messages(chat_id, first_message_id, last_message_id, batch_size=50):
+async def get_messages(chat_id, first_message_id, last_message_id, batch_size=200):
     messages = []
     current_message_id = first_message_id
     while current_message_id <= last_message_id:
         batch_message_ids = list(range(current_message_id, min(current_message_id + batch_size, last_message_id + 1)))
-        tasks = [fetch_message(chat_id, message_id) for message_id in batch_message_ids]
-        batch_messages = await gather(*tasks)
+        batch_messages = await StreamBot.get_messages(chat_id, batch_message_ids, replies=0)
         for message in batch_messages:
             if message:
                 if file := message.video or message.document:
                     title = file.file_name or message.caption or file.file_id
                     title, _ = splitext(title)
                     title = re.sub(r'[.,|_\',]', ' ', title)
-                    messages.append({"msg_id": message.id, "title": title,
+                    messages.append({"msg_id": str(message.id), "title": title,
                                      "hash": file.file_unique_id[:6], "size": get_readable_file_size(file.file_size),
                                      "type": file.mime_type, "chat_id": str(chat_id)})
+        LOGGER.info(
+            "Index scan progress for channel %s: %s/%s messages checked, %s files found",
+            chat_id,
+            min(batch_message_ids[-1], last_message_id),
+            last_message_id,
+            len(messages),
+        )
         current_message_id += batch_size
     return messages
 
