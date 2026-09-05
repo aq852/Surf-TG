@@ -116,16 +116,17 @@ class Database:
         return await asyncio.to_thread(lambda: list(self.collection.find(query).sort(
             'file_id', DESCENDING).skip(offset).limit(per_page)))
 
-    async def update_config(self, theme, auth_channel):
+    async def update_config(self, theme, auth_channel, **settings):
         bot_id = Telegram.BOT_TOKEN.split(":", 1)[0]
+        values = {"theme": theme, "auth_channel": auth_channel, **settings}
         config = await asyncio.to_thread(self.config.find_one, {"_id": bot_id})
         if config is None:
             result = await asyncio.to_thread(self.config.insert_one,
-                {"_id": bot_id, "theme": theme, "auth_channel": auth_channel})
+                {"_id": bot_id, **values})
             return result.inserted_id is not None
         else:
             result = await asyncio.to_thread(self.config.update_one, {"_id": bot_id}, {
-                "$set": {"theme": theme, "auth_channel": auth_channel}})
+                "$set": values})
             return result.acknowledged
 
     async def get_variable(self, key):
@@ -309,6 +310,17 @@ class Database:
             self.users.update_one,
             {"_id": username.lower()},
             {"$set": changes},
+        )
+        return result.matched_count
+
+    async def change_user_password(self, username, password_hash):
+        result = await asyncio.to_thread(
+            self.users.update_one,
+            {"_id": username.lower(), "active": {"$ne": False}},
+            {"$set": {
+                "password_hash": password_hash,
+                "updated_at": datetime.now(timezone.utc),
+            }},
         )
         return result.matched_count
 

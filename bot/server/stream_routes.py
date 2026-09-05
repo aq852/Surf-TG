@@ -22,7 +22,7 @@ from bot.server.custom_dl import ByteStreamer
 from bot.server.render_template import render_page
 from bot.helper.ranges import RangeNotSatisfiable, parse_range, plan_chunks
 from bot.helper.security import StreamTokenError, verify_stream_token
-from bot.helper.security import hash_password
+from bot.helper.security import hash_password, verify_password
 from bot.helper.accounts import account_tier, authenticate, is_admin
 from bot.helper.cache import rm_cache
 
@@ -88,6 +88,41 @@ def _parse_expiry(value):
     except ValueError as exc:
         raise web.HTTPBadRequest(text="Invalid expiry date") from exc
     return datetime.combine(selected, datetime_time.max, tzinfo=timezone.utc)
+
+
+async def _profile_html(session, changed=False):
+    username_value = str(session.get("user", ""))
+    try:
+        user = await db.get_user(username_value)
+    except Exception:
+        user = None
+    tier = str((user or {}).get("tier", session.get("tier", "free")))
+    role = "Administrator" if is_admin(session) else ("Premium member" if tier == "premium" else "Viewer")
+    expires_at = (user or {}).get("expires_at")
+    if expires_at:
+        normalized = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
+        seconds = max(0, (normalized - datetime.now(timezone.utc)).total_seconds())
+        days = int((seconds + 86399) // 86400)
+        expiry_text = f'{normalized.strftime("%d %b %Y")} UTC · {days} day{"s" if days != 1 else ""} remaining'
+    else:
+        expiry_text = "No automatic expiry"
+    password_form = (
+        '<form class="profile-password" action="/profile/password" method="post">'
+        '<h2>Change password</h2><p class="muted">Your password is never displayed. Confirm the current password before choosing a new one.</p>'
+        '<label>Current password</label><input class="form-control" type="password" name="current_password" required>'
+        '<label>New password</label><input class="form-control" type="password" name="new_password" minlength="10" required>'
+        '<button class="btn btn-primary">Update password</button></form>'
+        if user else
+        '<div class="profile-password"><h2>Password</h2><p class="muted">This built-in account is managed through the server configuration. Ask the owner to change it.</p></div>'
+    )
+    success = '<div class="success-banner">Password changed successfully.</div>' if changed else ""
+    support_url = f"https://t.me/{Telegram.SUPPORT_USERNAME}"
+    return (
+        f'{success}<section class="profile-grid"><div class="panel profile-card"><div class="profile-avatar">{escape(username_value[:1].upper() or "U")}</div>'
+        f'<div><div class="eyebrow">Member profile</div><h1>{escape(username_value)}</h1><div class="profile-badges"><span class="badge">{escape(role)}</span><span class="badge">{escape(tier.title())}</span></div></div>'
+        f'<dl class="profile-facts"><div><dt>Username</dt><dd>{escape(username_value)}</dd></div><div><dt>Plan</dt><dd>{escape(tier.title())}</dd></div><div><dt>Account expiry</dt><dd>{escape(expiry_text)}</dd></div></dl></div>'
+        f'<div class="panel">{password_form}<div class="support-box"><h2>Need help?</h2><p class="muted">Message the AkMovieVerse owner directly on Telegram.</p><a class="btn" href="{support_url}" target="_blank" rel="noopener">Contact @{escape(Telegram.SUPPORT_USERNAME)}</a></div></div></section>'
+    )
 
 
 def public_chat_id(value: str) -> int:
@@ -312,7 +347,30 @@ async def editConfig_route(request):
         [int(value.strip()) for value in str(channel or "").split(",") if value.strip()]
     except ValueError as exc:
         raise web.HTTPBadRequest(text="Invalid channel ID list") from exc
-    success = await db.update_config(theme=theme, auth_channel=channel)
+    ad_provider = str(data.get("ad_provider", "adsterra")).lower()
+    ad_code = str(data.get("ad_code", "")).strip()
+    if ad_provider not in {"adsterra", "monetag"}:
+        raise web.HTTPBadRequest(text="Invalid ad provider")
+    if len(ad_code) > 50000:
+        raise web.HTTPBadRequest(text="Ad tag is too large")
+    try:
+        ad_height = int(data.get("ad_height", "100"))
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text="Invalid ad height") from exc
+    if not 50 <= ad_height <= 600:
+        raise web.HTTPBadRequest(text="Ad height must be between 50 and 600 pixels")
+    network_ads_enabled = data.get("network_ads_enabled") == "yes"
+    if network_ads_enabled and not ad_code:
+        raise web.HTTPBadRequest(text="Paste the provider ad tag before enabling network ads")
+    success = await db.update_config(
+        theme=theme,
+        auth_channel=channel,
+        manual_ads_enabled=data.get("manual_ads_enabled") == "yes",
+        network_ads_enabled=network_ads_enabled,
+        ad_provider=ad_provider,
+        ad_code=ad_code,
+        ad_height=ad_height,
+    )
     if not success:
         raise web.HTTPInternalServerError()
     raise web.HTTPFound('/')
@@ -375,6 +433,62 @@ async def delete_user_route(request):
     data = await request.post()
     await db.delete_user(str(data.get("username", "")))
     raise web.HTTPFound('/#accounts')
+
+
+@routes.get('/profile')
+async def profile_route(request):
+    session = await get_session(request)
+    if not session.get("user"):
+        session["redirect_url"] = request.path_qs
+        raise web.HTTPFound('/login')
+    role_label = "Administrator" if is_admin(session) else ("Premium" if account_tier(session) == "premium" else "Viewer")
+    profile = await _profile_html(session, changed=request.query.get("changed") == "1")
+    return web.Response(
+        text=await render_page(None, None, route="profile", html=profile, is_admin=is_admin(session), account_role=role_label),
+        content_type="text/html",
+    )
+
+
+@routes.post('/profile/password')
+async def profile_password_route(request):
+    session = await get_session(request)
+    username = str(session.get("user", ""))
+    if not username:
+        raise web.HTTPUnauthorized(text="Login required")
+    user = await db.get_user(username)
+    if not user or not user.get("active", True):
+        raise web.HTTPForbidden(text="Password changes are unavailable for this account")
+    data = await request.post()
+    current_password = str(data.get("current_password", ""))
+    new_password = str(data.get("new_password", ""))
+    if not await asyncio.to_thread(verify_password, current_password, user.get("password_hash", "")):
+        raise web.HTTPBadRequest(text="Current password is incorrect")
+    if len(new_password) < 10:
+        raise web.HTTPBadRequest(text="New password must contain at least 10 characters")
+    await db.change_user_password(username, await asyncio.to_thread(hash_password, new_password))
+    raise web.HTTPFound('/profile?changed=1')
+
+
+@routes.get('/ads/network')
+async def network_ad_route(request):
+    session = await get_session(request)
+    if not session.get("user"):
+        raise web.HTTPUnauthorized(text="Login required")
+    enabled = await db.get_variable("network_ads_enabled")
+    code = await db.get_variable("ad_code") or ""
+    provider = str(await db.get_variable("ad_provider") or "adsterra")
+    if not enabled or not code or provider not in {"adsterra", "monetag"}:
+        raise web.HTTPNotFound()
+    document = (
+        '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<style>html,body{margin:0;min-height:100%;display:grid;place-items:center;background:transparent;overflow:hidden}</style></head>'
+        f'<body>{code}</body></html>'
+    )
+    return web.Response(text=document, content_type="text/html", headers={
+        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline' https:; img-src https: data:; connect-src https:; frame-src https:; style-src 'unsafe-inline'; form-action https:; frame-ancestors 'self'",
+        "X-Frame-Options": "SAMEORIGIN",
+        "Referrer-Policy": "no-referrer",
+    })
 
 
 @routes.post('/channel/cover')

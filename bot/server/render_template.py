@@ -29,17 +29,48 @@ def _safe_external_url(value):
     return value if parsed.scheme in {"http", "https"} and parsed.netloc else ""
 
 
-def _ad_slot():
+async def _ad_preferences():
+    defaults = {
+        "manual_ads_enabled": bool(Telegram.AD_TITLE and Telegram.AD_URL),
+        "network_ads_enabled": False,
+        "ad_provider": "adsterra",
+        "ad_code": "",
+        "ad_height": 100,
+    }
+    for key in tuple(defaults):
+        try:
+            value = await db.get_variable(key)
+        except Exception:
+            value = None
+        if value is not None:
+            defaults[key] = value
+    return defaults
+
+
+async def _ad_slot():
+    preferences = await _ad_preferences()
     target = _safe_external_url(Telegram.AD_URL)
     image = _safe_external_url(Telegram.AD_IMAGE_URL)
-    if not Telegram.AD_TITLE or not target:
-        return ""
-    picture = f'<img src="{escape(image, quote=True)}" alt="Advertisement">' if image else ""
-    return (
-        '<aside class="ad-slot"><span class="ad-label">Advertisement</span>'
-        f'<a href="{escape(target, quote=True)}" target="_blank" rel="nofollow sponsored noopener">'
-        f'{picture}<strong>{escape(Telegram.AD_TITLE)}</strong></a></aside>'
-    )
+    slots = []
+    if preferences["manual_ads_enabled"] and Telegram.AD_TITLE and target:
+        picture = f'<img src="{escape(image, quote=True)}" alt="Advertisement">' if image else ""
+        slots.append(
+            '<aside class="ad-slot"><span class="ad-label">Advertisement</span>'
+            f'<a href="{escape(target, quote=True)}" target="_blank" rel="nofollow sponsored noopener">'
+            f'{picture}<strong>{escape(Telegram.AD_TITLE)}</strong></a></aside>'
+        )
+    if preferences["network_ads_enabled"] and preferences["ad_code"]:
+        provider = escape(str(preferences["ad_provider"]).title())
+        try:
+            height = max(50, min(600, int(preferences["ad_height"])))
+        except (TypeError, ValueError):
+            height = 100
+        slots.append(
+            '<aside class="ad-slot network-ad"><span class="ad-label">Advertisement</span>'
+            f'<iframe src="/ads/network" title="{provider} advertisement" style="height:{height}px" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" '
+            'loading="lazy" referrerpolicy="no-referrer" scrolling="no"></iframe></aside>'
+        )
+    return "".join(slots)
 
 
 async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', accounts='', downloadable=True, account_role='', display_title=''):
@@ -48,7 +79,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
             error = f'<div class="alert">{escape(msg)}</div>' if msg else ''
             html = (await f.read()).replace("<!-- ErrorBlock -->", error)
-            return _finish_page(html, "midnight", False)
+            return _finish_page(html, "midnight", False, "")
     try:
         theme = await db.get_variable('theme')
     except Exception:
@@ -66,6 +97,14 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             auth_channels = ", ".join(Telegram.AUTH_CHANNEL)
         async with aiopen(ospath.join(tpath, 'home.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Print -->", html).replace("<!-- Playlist -->", playlist).replace("<!-- Accounts -->", accounts).replace("<!-- AuthChannels -->", escape(str(auth_channels), quote=True))
+            ad_preferences = await _ad_preferences()
+            html = (html
+                .replace("<!-- ManualAdsChecked -->", "checked" if ad_preferences["manual_ads_enabled"] else "")
+                .replace("<!-- NetworkAdsChecked -->", "checked" if ad_preferences["network_ads_enabled"] else "")
+                .replace("<!-- AdsterraSelected -->", "selected" if ad_preferences["ad_provider"] == "adsterra" else "")
+                .replace("<!-- MonetagSelected -->", "selected" if ad_preferences["ad_provider"] == "monetag" else "")
+                .replace("<!-- AdHeight -->", escape(str(ad_preferences["ad_height"]), quote=True))
+                .replace("<!-- AdCode -->", escape(str(ad_preferences["ad_code"]))))
             if not is_admin and Telegram.HIDE_CHANNEL:
                 html += hide_channel
     elif route == 'playlist':
@@ -74,7 +113,10 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
     elif route == 'index':
         async with aiopen(ospath.join(tpath, 'index.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Print -->", html).replace("<!-- Title -->", safe_title).replace("<!-- Chat_id -->", escape(str(chat_id), quote=True))
-    if route in {'home', 'playlist', 'index'}:
+    elif route == 'profile':
+        async with aiopen(ospath.join(tpath, 'profile.html'), 'r', encoding='utf-8') as f:
+            html = (await f.read()).replace("<!-- Profile -->", html)
+    if route in {'home', 'playlist', 'index', 'profile'}:
         if not is_admin:
             html = re.sub(r'<!-- ADMIN_START -->.*?<!-- ADMIN_END -->', '', html, flags=re.DOTALL)
         else:
@@ -107,16 +149,16 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             html = re.sub(r'<!-- DOWNLOAD_START -->.*?<!-- DOWNLOAD_END -->', '', html, flags=re.DOTALL)
         else:
             html = html.replace('<!-- DOWNLOAD_START -->', '').replace('<!-- DOWNLOAD_END -->', '')
-    return _finish_page(html, theme, is_admin)
+    return _finish_page(html, theme, is_admin, await _ad_slot())
 
 
-def _finish_page(html, theme, is_admin):
+def _finish_page(html, theme, is_admin, ad_slot):
     safe_name = escape(Telegram.SITE_NAME)
     safe_credit = escape(Telegram.SITE_CREDIT)
     return (html
         .replace("<!-- Theme -->", theme)
         .replace("<!-- BrandName -->", safe_name)
         .replace("<!-- SiteCredit -->", safe_credit)
-        .replace("<!-- AdSlot -->", _ad_slot())
+        .replace("<!-- AdSlot -->", ad_slot)
         .replace("<body>", f'<body data-theme="{theme}" data-base-theme="{theme}">')
     )

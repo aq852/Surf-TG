@@ -1,5 +1,6 @@
 from os import getenv
 import secrets
+import re
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -35,6 +36,7 @@ class Telegram:
     AD_TITLE = getenv("AD_TITLE", "").strip()
     AD_URL = getenv("AD_URL", "").strip()
     AD_IMAGE_URL = getenv("AD_IMAGE_URL", "").strip()
+    SUPPORT_USERNAME = getenv("SUPPORT_USERNAME", "AK_ownerbot").strip().lstrip("@")
     FILENAME_CLEANUP_REGEX = getenv("FILENAME_CLEANUP_REGEX", "").strip()
 
     @classmethod
@@ -64,3 +66,5 @@ class Telegram:
                 re.compile(cls.FILENAME_CLEANUP_REGEX)
             except re.error as exc:
                 raise RuntimeError(f"Invalid FILENAME_CLEANUP_REGEX: {exc}") from exc
+        if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", cls.SUPPORT_USERNAME):
+            raise RuntimeError("SUPPORT_USERNAME must be a valid Telegram username")

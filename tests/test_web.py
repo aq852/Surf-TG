@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import datetime, timedelta, timezone
 
 # Explicit values keep the smoke tests isolated from a developer's config.env.
 os.environ.update({
@@ -23,6 +24,7 @@ from unittest.mock import AsyncMock, patch
 from bot.server import web_server
 from bot.server.render_template import render_page
 from bot.server.stream_routes import _image_type
+from bot.helper.security import hash_password
 
 
 class WebSmokeTests(AioHTTPTestCase):
@@ -191,6 +193,80 @@ class WebSmokeTests(AioHTTPTestCase):
         )
         self.assertEqual(403, response.status)
 
+    async def test_member_profile_shows_expiry_and_support(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        account = {"username": "member1", "role": "viewer", "tier": "premium"}
+        with patch("bot.server.stream_routes.authenticate", AsyncMock(return_value=account)):
+            await self.client.post(
+                "/login",
+                data={"username": "member1", "password": "member-password"},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        user = {
+            "username": "member1",
+            "tier": "premium",
+            "expires_at": datetime.now(timezone.utc) + timedelta(days=5),
+        }
+        with (
+            patch("bot.server.stream_routes.db.get_user", AsyncMock(return_value=user)),
+            patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)),
+        ):
+            response = await self.client.get("/profile")
+        html = await response.text()
+        self.assertEqual(200, response.status)
+        self.assertIn("member1", html)
+        self.assertIn("days remaining", html)
+        self.assertIn("https://t.me/AK_ownerbot", html)
+        self.assertIn("Change password", html)
+
+    async def test_member_can_change_own_password(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        account = {"username": "member1", "role": "viewer", "tier": "free"}
+        with patch("bot.server.stream_routes.authenticate", AsyncMock(return_value=account)):
+            await self.client.post(
+                "/login",
+                data={"username": "member1", "password": "current-password"},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        user = {"username": "member1", "password_hash": hash_password("current-password"), "active": True}
+        with (
+            patch("bot.server.stream_routes.db.get_user", AsyncMock(return_value=user)),
+            patch("bot.server.stream_routes.db.change_user_password", AsyncMock(return_value=1)) as change,
+        ):
+            response = await self.client.post(
+                "/profile/password",
+                data={"current_password": "current-password", "new_password": "new-safe-password"},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        self.assertEqual("/profile?changed=1", response.headers["Location"])
+        change.assert_awaited_once()
+        self.assertEqual("member1", change.await_args.args[0])
+
+    async def test_network_ad_document_is_isolated(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        values = {
+            "network_ads_enabled": True,
+            "ad_code": '<script src="https://ads.example/tag.js"></script>',
+            "ad_provider": "adsterra",
+        }
+        with patch("bot.server.stream_routes.db.get_variable", AsyncMock(side_effect=lambda key: values.get(key))):
+            response = await self.client.get("/ads/network")
+        html = await response.text()
+        self.assertEqual(200, response.status)
+        self.assertIn("https://ads.example/tag.js", html)
+        self.assertEqual("SAMEORIGIN", response.headers["X-Frame-Options"])
+        self.assertIn("frame-ancestors 'self'", response.headers["Content-Security-Policy"])
+
     async def test_viewer_html_contains_no_admin_controls(self):
         with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
             html = await render_page(
@@ -206,9 +282,12 @@ class WebSmokeTests(AioHTTPTestCase):
             html = await render_page(
                 None, None, route="home", html="", playlist="", is_admin=True
             )
-        self.assertIn("Library settings", html)
+        self.assertIn("Library and advertising settings", html)
         self.assertIn("Viewer and premium accounts", html)
         self.assertIn("Expires on", html)
+        self.assertIn("Library and advertising settings", html)
+        self.assertIn("Adsterra", html)
+        self.assertIn("Monetag", html)
         self.assertIn("Create a collection", html)
         self.assertNotIn("ADMIN_START", html)
         self.assertIn("Administrator", html)

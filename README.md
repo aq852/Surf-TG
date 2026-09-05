@@ -20,6 +20,8 @@ It keeps the original project's direct workflow—sign in, open a channel, choos
 - Admin-uploaded channel profile pictures
 - Admin controls for deleting indexed rows and marking files premium/download-disabled
 - Individual free or premium viewer accounts stored as password hashes
+- Member profile with expiry countdown, self-service password changes, and Telegram owner support
+- Independently switchable manual ads and sandboxed Adsterra/Monetag publisher tags
 - Midnight, cinema, ocean, and light themes with a personal night-mode toggle
 - Conservative filename cleanup for links, handles, and channel promotions
 - Optional, clearly labelled ad placement configured by environment variables
@@ -88,6 +90,7 @@ Important settings:
 | `AD_TITLE` | Advertisement label/text; leave empty to disable ad slots |
 | `AD_URL` | Required HTTP(S) destination when an ad is enabled |
 | `AD_IMAGE_URL` | Optional HTTP(S) ad image |
+| `SUPPORT_USERNAME` | Telegram support username; defaults to `AK_ownerbot` |
 
 ## Run with Docker
 
@@ -123,11 +126,15 @@ Re-run `/index` after changing filename-cleanup rules. Index batches are committ
 
 Sign in as the administrator and open **Viewer and premium accounts** to create a unique login for each member. Existing accounts can be opened to change their password, free/premium tier, enabled status, or automatic expiry date. On a channel page, open a file card's **Manage** panel to rename only its displayed title, mark it free or premium, hide its download button, or remove its indexed row. The channel danger zone can remove every indexed row in that channel at once; neither delete action removes the original Telegram messages.
 
+Members can open **Profile** to see their username, plan, and remaining account lifetime, change their own database-backed password, or contact the owner through `@AK_ownerbot`. Built-in environment accounts remain server-managed and do not expose password changes in the browser.
+
 “Watch only” is a policy control, not DRM: any browser that can decode a video receives its bytes and a determined viewer can capture them. AkMovieVerse hides and cryptographically scopes the explicit download action, but it does not claim to make streamed media impossible to copy. Likewise, individual accounts improve accountability, but preventing credential sharing completely requires server-side device/session limits or a paid identity provider.
 
 ## Channel art, themes, and ads
 
-Administrators can upload a PNG, JPEG, or WebP channel picture (maximum 5 MB) from the channel page. The global theme is selected in Library settings; each browser can temporarily toggle light/night mode. Ad slots render only when both `AD_TITLE` and a valid `AD_URL` are configured. AkMovieVerse does not inject an ad network or tracking script.
+Administrators can upload a PNG, JPEG, or WebP channel picture (maximum 5 MB) from the channel page. The global theme is selected in Library settings; each browser can temporarily toggle light/night mode.
+
+The administrator can independently enable the existing manual ad or a publisher tag from Adsterra/Monetag under **Library and advertising settings**. Paste the exact tag issued by the selected publisher dashboard and choose its frame height. Publisher JavaScript runs in a restricted sandboxed iframe, separate from AkMovieVerse session cookies and the parent page. Network ads still involve third-party tracking and must comply with the provider's rules and the laws applicable to your visitors.
 
 ## Tests
 
