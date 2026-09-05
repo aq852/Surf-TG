@@ -210,6 +210,10 @@ def _finish_page(html, theme, is_admin, ad_slot):
     safe_name = escape(Telegram.SITE_NAME)
     safe_credit = escape(Telegram.SITE_CREDIT)
     return (html
+        # Versioned local assets ensure phones do not keep an old responsive
+        # stylesheet/script after a Koyeb deployment.
+        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.1.1"')
+        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.1.1"')
         .replace("<!-- Theme -->", theme)
         .replace("<!-- BrandName -->", safe_name)
         .replace("<!-- SiteCredit -->", safe_credit)
