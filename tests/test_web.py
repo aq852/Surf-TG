@@ -193,6 +193,48 @@ class WebSmokeTests(AioHTTPTestCase):
         )
         self.assertEqual(403, response.status)
 
+    async def test_admin_can_disable_downloads_globally(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        with patch("bot.server.stream_routes.db.set_config_values", AsyncMock(return_value=True)) as save:
+            response = await self.client.post(
+                "/admin/download-policy",
+                data={},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        self.assertEqual("/admin#downloads", response.headers["Location"])
+        save.assert_awaited_once_with(downloads_enabled=False)
+
+    async def test_viewer_cannot_open_admin_dashboard(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "viewer", "password": "viewer-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        response = await self.client.get("/admin")
+        self.assertEqual(403, response.status)
+
+    async def test_free_viewer_cannot_open_premium_collection(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "viewer", "password": "viewer-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        with patch("bot.server.stream_routes.db.collection_requires_premium", AsyncMock(return_value=True)):
+            response = await self.client.get("/playlist?db=507f1f77bcf86cd799439011")
+        self.assertEqual(403, response.status)
+
     async def test_member_profile_shows_expiry_and_support(self):
         origin = str(self.server.make_url("/")).rstrip("/")
         account = {"username": "member1", "role": "viewer", "tier": "premium"}
@@ -286,7 +328,8 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("Premium offer", html)
         self.assertIn('href="https://example.com/offer?from=library"', html)
         self.assertIn('src="https://example.com/banner.jpg"', html)
-        self.assertIn('name="manual_ad_title"', html)
+        self.assertIn("manual-ad", html)
+        self.assertIn('href="/admin"', html)
 
     async def test_admin_can_save_manual_ad_settings(self):
         origin = str(self.server.make_url("/")).rstrip("/")
@@ -296,16 +339,21 @@ class WebSmokeTests(AioHTTPTestCase):
             headers={"Origin": origin},
             allow_redirects=False,
         )
-        with patch("bot.server.stream_routes.db.update_config", AsyncMock(return_value=True)) as update:
+        with (
+            patch("bot.server.stream_routes.db.update_config", AsyncMock(return_value=True)) as update,
+            patch("bot.server.stream_routes.db.get_variable", AsyncMock(return_value=None)),
+        ):
             response = await self.client.post(
                 "/config",
                 data={
+                    "manual_form": "1",
                     "theme": "midnight",
                     "channel": "-100123",
                     "manual_ads_enabled": "yes",
                     "manual_ad_title": "Premium offer",
                     "manual_ad_url": "https://example.com/offer",
                     "manual_ad_image_url": "https://example.com/banner.jpg",
+                    "manual_ad_placement": "all",
                     "ad_provider": "adsterra",
                     "ad_height": "100",
                     "ad_code": "",
@@ -316,6 +364,7 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertEqual(302, response.status)
         self.assertEqual("Premium offer", update.await_args.kwargs["manual_ad_title"])
         self.assertEqual("https://example.com/offer", update.await_args.kwargs["manual_ad_url"])
+        self.assertEqual("all", update.await_args.kwargs["manual_ad_placement"])
 
     async def test_manual_ad_rejects_non_http_destination(self):
         origin = str(self.server.make_url("/")).rstrip("/")
@@ -325,21 +374,20 @@ class WebSmokeTests(AioHTTPTestCase):
             headers={"Origin": origin},
             allow_redirects=False,
         )
-        response = await self.client.post(
-            "/config",
-            data={
-                "theme": "midnight",
-                "channel": "-100123",
-                "manual_ads_enabled": "yes",
-                "manual_ad_title": "Unsafe offer",
-                "manual_ad_url": "javascript:alert(1)",
-                "ad_provider": "adsterra",
-                "ad_height": "100",
-                "ad_code": "",
-            },
-            headers={"Origin": origin},
-            allow_redirects=False,
-        )
+        with patch("bot.server.stream_routes.db.get_variable", AsyncMock(return_value=None)):
+            response = await self.client.post(
+                "/config",
+                data={
+                    "manual_form": "1",
+                    "theme": "midnight",
+                    "channel": "-100123",
+                    "manual_ads_enabled": "yes",
+                    "manual_ad_title": "Unsafe offer",
+                    "manual_ad_url": "javascript:alert(1)",
+                },
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
         self.assertEqual(400, response.status)
 
     async def test_viewer_html_contains_no_admin_controls(self):
@@ -355,15 +403,15 @@ class WebSmokeTests(AioHTTPTestCase):
     async def test_admin_html_contains_admin_controls(self):
         with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
             html = await render_page(
-                None, None, route="home", html="", playlist="", is_admin=True
+                None, None, route="admin", accounts="", is_admin=True
             )
-        self.assertIn("Library and advertising settings", html)
-        self.assertIn("Viewer and premium accounts", html)
+        self.assertIn("Admin dashboard", html)
+        self.assertIn("Library settings", html)
+        self.assertIn("Viewer & premium accounts", html)
         self.assertIn("Expires on", html)
-        self.assertIn("Library and advertising settings", html)
         self.assertIn("Adsterra", html)
         self.assertIn("Monetag", html)
-        self.assertIn("Create a collection", html)
+        self.assertIn("Create collection", html)
         self.assertNotIn("ADMIN_START", html)
         self.assertIn("Administrator", html)
         self.assertIn("Royal Gold", html)
@@ -371,7 +419,8 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("AMOLED Black", html)
         self.assertIn("Graphite Luxe", html)
         self.assertIn("Manual advertisement", html)
-        self.assertIn("Inline banner publisher tag", html)
+        self.assertIn("Inline banner/native-banner publisher tag", html)
+        self.assertIn("Global downloads", html)
 
     async def test_saved_premium_theme_is_rendered_before_javascript(self):
         values = {"theme": "royal"}

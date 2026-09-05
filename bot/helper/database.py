@@ -48,9 +48,9 @@ class Database:
             client.close()
         cls._clients.clear()
 
-    async def create_folder(self, parent_id, folder_name, thumbnail):
+    async def create_folder(self, parent_id, folder_name, thumbnail, access="free"):
         folder = {"parent_folder": parent_id, "name": folder_name,
-                  "thumbnail": thumbnail, "type": "folder"}
+                  "thumbnail": thumbnail, "type": "folder", "access": access}
         await asyncio.to_thread(self.collection.insert_one, folder)
 
     async def delete(self, document_id):
@@ -69,10 +69,35 @@ class Database:
             print(f'An error occurred: {e}')
             return False
 
-    async def edit(self, id, name, thumbnail):
+    async def edit(self, id, name, thumbnail, access=None):
+        changes = {"name": name, "thumbnail": thumbnail}
+        if access in {"free", "premium"}:
+            changes["access"] = access
         result = await asyncio.to_thread(self.collection.update_one, {"_id": ObjectId(id)}, {
-            "$set": {"name": name, "thumbnail": thumbnail}})
+            "$set": changes})
         return result.modified_count > 0
+
+    async def get_folder(self, folder_id):
+        if not folder_id or folder_id == "root":
+            return None
+        try:
+            return await asyncio.to_thread(self.collection.find_one, {"_id": ObjectId(folder_id), "type": "folder"})
+        except Exception:
+            return None
+
+    async def collection_requires_premium(self, folder_id):
+        """Honor access on a collection and each of its parent collections."""
+        current = str(folder_id or "root")
+        visited = set()
+        while current != "root" and current not in visited:
+            visited.add(current)
+            folder = await self.get_folder(current)
+            if not folder:
+                return False
+            if folder.get("access", "free") == "premium":
+                return True
+            current = str(folder.get("parent_folder", "root"))
+        return False
 
     async def search_DbFolder(self, query):
         words = re.findall(r'\w+', query.lower())
@@ -99,6 +124,15 @@ class Database:
         offset = (int(page) - 1) * per_page
         return await asyncio.to_thread(lambda: list(self.collection.find(query).sort(
             'file_id', DESCENDING).skip(offset).limit(per_page)))
+
+    async def list_latest_tgfiles(self, chat_ids, page=1, per_page=48):
+        ids = []
+        for chat_id in chat_ids:
+            ids.extend([str(chat_id), int(chat_id)])
+        offset = (int(page) - 1) * per_page
+        return await asyncio.to_thread(
+            lambda: list(self.files.find({"chat_id": {"$in": ids}}).sort("_id", DESCENDING).skip(offset).limit(per_page))
+        )
 
     async def get_info(self, id):
         query = {'_id': ObjectId(id)}
@@ -128,6 +162,16 @@ class Database:
             result = await asyncio.to_thread(self.config.update_one, {"_id": bot_id}, {
                 "$set": values})
             return result.acknowledged
+
+    async def set_config_values(self, **settings):
+        bot_id = Telegram.BOT_TOKEN.split(":", 1)[0]
+        result = await asyncio.to_thread(
+            self.config.update_one,
+            {"_id": bot_id},
+            {"$set": settings},
+            upsert=True,
+        )
+        return result.acknowledged
 
     async def get_variable(self, key):
         bot_id = Telegram.BOT_TOKEN.split(":", 1)[0]

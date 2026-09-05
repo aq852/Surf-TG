@@ -205,9 +205,12 @@ async def create_route(request):
     thumbnail = data.get('thumbnail')
     parent_dir = data.get('parent_dir', 'root')
     parent_dir = parent_dir.split('db=')[-1] if 'db=' in parent_dir else 'root'
+    access = str(data.get("access", "free"))
     if not folderName or len(folderName) > 120 or len(thumbnail or "") > 2048:
         raise web.HTTPBadRequest(text="Invalid folder data")
-    await db.create_folder(parent_dir, folderName, thumbnail)
+    if access not in {"free", "premium"}:
+        raise web.HTTPBadRequest(text="Invalid collection access")
+    await db.create_folder(parent_dir, folderName, thumbnail, access)
     if parent_dir == 'root':
         raise web.HTTPFound('/')
     else:
@@ -240,7 +243,10 @@ async def editFolder_route(request):
     thumbnail = data.get('thumbnail')
     id = data.get('folder_id')
     parent = data.get('parent')
-    success = await db.edit(id, folderName, thumbnail)
+    access = str(data.get("access", "free"))
+    if access not in {"free", "premium"}:
+        raise web.HTTPBadRequest(text="Invalid collection access")
+    success = await db.edit(id, folderName, thumbnail, access)
     if not success:
         raise web.HTTPInternalServerError()
     if parent == 'root':
@@ -349,39 +355,52 @@ async def editConfig_route(request):
     if not is_admin(session):
         raise web.HTTPForbidden(text='Administrator access required')
     data = await request.post()
-    channel = data.get('channel')
-    theme = data.get('theme')
+    async def saved_value(name, fallback):
+        try:
+            value = await db.get_variable(name)
+        except Exception:
+            value = None
+        return fallback if value is None else value
+
+    channel = data.get('channel') or await saved_value('auth_channel', ','.join(Telegram.AUTH_CHANNEL))
+    theme = data.get('theme') or await saved_value('theme', Telegram.THEME)
     if theme not in Telegram.THEMES:
         raise web.HTTPBadRequest(text="Invalid theme")
     try:
         [int(value.strip()) for value in str(channel or "").split(",") if value.strip()]
     except ValueError as exc:
         raise web.HTTPBadRequest(text="Invalid channel ID list") from exc
-    ad_provider = str(data.get("ad_provider", "adsterra")).lower()
-    ad_code = str(data.get("ad_code", "")).strip()
-    manual_ads_enabled = data.get("manual_ads_enabled") == "yes"
-    manual_ad_title = str(data.get("manual_ad_title", "")).strip()
+    manual_form = data.get("manual_form") == "1"
+    network_form = data.get("network_form") == "1"
+    ad_provider = str(data.get("ad_provider") if network_form else await saved_value("ad_provider", "adsterra")).lower()
+    ad_code = str(data.get("ad_code") if network_form else await saved_value("ad_code", "")).strip()
+    manual_ads_enabled = (data.get("manual_ads_enabled") == "yes") if manual_form else bool(await saved_value("manual_ads_enabled", bool(Telegram.AD_TITLE and Telegram.AD_URL)))
+    manual_ad_title = str(data.get("manual_ad_title") if manual_form else await saved_value("manual_ad_title", Telegram.AD_TITLE)).strip()
     if len(manual_ad_title) > 120:
         raise web.HTTPBadRequest(text="Manual ad title is too long")
-    manual_ad_url = _external_url(
-        data.get("manual_ad_url"), "Manual ad destination", required=manual_ads_enabled
-    )
-    manual_ad_image_url = _external_url(data.get("manual_ad_image_url"), "Manual ad image")
+    manual_ad_url = _external_url(data.get("manual_ad_url") if manual_form else await saved_value("manual_ad_url", Telegram.AD_URL), "Manual ad destination", required=manual_ads_enabled)
+    manual_ad_image_url = _external_url(data.get("manual_ad_image_url") if manual_form else await saved_value("manual_ad_image_url", Telegram.AD_IMAGE_URL), "Manual ad image")
+    manual_ad_placement = str(data.get("manual_ad_placement") if manual_form else await saved_value("manual_ad_placement", "all"))
     if manual_ads_enabled and not manual_ad_title:
         raise web.HTTPBadRequest(text="Add a manual ad title before enabling it")
+    if manual_ad_placement not in {"all", "home", "channel", "collection", "player"}:
+        raise web.HTTPBadRequest(text="Invalid manual ad placement")
     if ad_provider not in {"adsterra", "monetag"}:
         raise web.HTTPBadRequest(text="Invalid ad provider")
     if len(ad_code) > 50000:
         raise web.HTTPBadRequest(text="Ad tag is too large")
     try:
-        ad_height = int(data.get("ad_height", "100"))
+        ad_height = int(data.get("ad_height") if network_form else await saved_value("ad_height", 100))
     except ValueError as exc:
         raise web.HTTPBadRequest(text="Invalid ad height") from exc
     if not 50 <= ad_height <= 600:
         raise web.HTTPBadRequest(text="Ad height must be between 50 and 600 pixels")
-    network_ads_enabled = data.get("network_ads_enabled") == "yes"
+    network_ads_enabled = (data.get("network_ads_enabled") == "yes") if network_form else bool(await saved_value("network_ads_enabled", False))
+    network_ad_placement = str(data.get("network_ad_placement") if network_form else await saved_value("network_ad_placement", "all"))
     if network_ads_enabled and not ad_code:
         raise web.HTTPBadRequest(text="Paste the provider ad tag before enabling network ads")
+    if network_ad_placement not in {"all", "home", "channel", "collection", "player"}:
+        raise web.HTTPBadRequest(text="Invalid network ad placement")
     success = await db.update_config(
         theme=theme,
         auth_channel=channel,
@@ -389,10 +408,12 @@ async def editConfig_route(request):
         manual_ad_title=manual_ad_title,
         manual_ad_url=manual_ad_url,
         manual_ad_image_url=manual_ad_image_url,
+        manual_ad_placement=manual_ad_placement,
         network_ads_enabled=network_ads_enabled,
         ad_provider=ad_provider,
         ad_code=ad_code,
         ad_height=ad_height,
+        network_ad_placement=network_ad_placement,
     )
     if not success:
         raise web.HTTPInternalServerError()
@@ -509,7 +530,7 @@ async def network_ad_route(request):
         f'<body>{code}<div id="ad-fallback" hidden>Advertisement unavailable</div><script>'
         'setTimeout(()=>{const f=document.getElementById("ad-fallback");const visual=[...document.body.children].some('
         'el=>el!==f&&el.tagName!=="SCRIPT"&&el.tagName!=="STYLE"&&el.getBoundingClientRect().height>10);'
-        'if(!visual)f.hidden=false},4000)</script></body></html>'
+        'if(!visual){f.hidden=false;parent.postMessage({type:"akmv-ad-empty"},"*")}},4000)</script></body></html>'
     )
     return web.Response(text=document, content_type="text/html", headers={
         "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline' https:; img-src https: data: blob:; connect-src https: wss:; frame-src https:; media-src https: data: blob:; font-src https: data:; worker-src https: blob:; style-src 'unsafe-inline' https:; form-action https:; frame-ancestors 'self'",
@@ -608,6 +629,30 @@ async def indexed_settings_route(request):
     raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
 
 
+@routes.post('/admin/download-policy')
+async def download_policy_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    await db.set_config_values(downloads_enabled=data.get("downloads_enabled") == "yes")
+    raise web.HTTPFound('/admin#downloads')
+
+
+@routes.get('/admin')
+async def admin_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    accounts = await _users_html()
+    return web.Response(
+        text=await render_page(
+            None, None, route="admin", accounts=accounts, is_admin=True, account_role="Administrator"
+        ),
+        content_type="text/html",
+    )
+
+
 
 @routes.get('/')
 async def home_route(request):
@@ -616,12 +661,20 @@ async def home_route(request):
         try:
             channels = await get_chats()
             playlists = await db.get_Dbfolder()
+            latest = await db.list_latest_tgfiles(await get_authorized_chat_ids())
             admin = is_admin(session)
             role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
             phtml = await posts_chat(channels)
-            dhtml = await post_playlist(playlists, is_admin=admin)
+            tier = account_tier(session)
+            dhtml = await post_playlist(playlists, is_admin=admin, user_tier=tier)
+            latest_html = ''.join(
+                await posts_file([post], int(post["chat_id"]), is_admin=admin, user_tier=tier)
+                for post in latest
+            )
             accounts = await _users_html() if admin else ""
-            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, accounts=accounts, is_admin=admin, account_role=role_label), content_type='text/html')
+            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, database=latest_html, accounts=accounts, is_admin=admin, account_role=role_label, display_title=request.query.get("view", "channels")), content_type='text/html')
+        except web.HTTPException:
+            raise
         except Exception as e:
             logging.critical(e.with_traceback(None))
             raise web.HTTPInternalServerError(text=str(e)) from e
@@ -636,15 +689,21 @@ async def playlist_route(request):
     if username := session.get('user'):
         try:
             parent_id = request.query.get('db')
+            if not parent_id:
+                raise web.HTTPNotFound()
             page = request.query.get('page', '1')
+            admin = is_admin(session)
+            if await db.collection_requires_premium(parent_id) and not (admin or account_tier(session) == "premium"):
+                raise web.HTTPForbidden(text="Premium membership required for this collection")
             playlists = await db.get_Dbfolder(parent_id, page=page)
             files = await db.get_dbFiles(parent_id, page=page)
             text = await db.get_info(parent_id)
-            admin = is_admin(session)
             role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
-            dhtml = await post_playlist(playlists, is_admin=admin)
+            dhtml = await post_playlist(playlists, is_admin=admin, user_tier=account_tier(session))
             dphtml = await posts_db_file(files, is_admin=admin, user_tier=account_tier(session))
             return web.Response(text=await render_page(parent_id, None, route='playlist', playlist=dhtml, database=dphtml, msg=text, is_admin=admin, account_role=role_label), content_type='text/html')
+        except web.HTTPException:
+            raise
         except Exception as e:
             logging.critical(e.with_traceback(None))
             raise web.HTTPInternalServerError(text=str(e)) from e
@@ -663,11 +722,15 @@ async def dbsearch_route(request):
         admin = is_admin(session)
         role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
         try:
+            if await db.collection_requires_premium(parent) and not (admin or account_tier(session) == "premium"):
+                raise web.HTTPForbidden(text="Premium membership required for this collection")
             files = await db.search_dbfiles(id=parent, page=page, query=query)
             dphtml = await posts_db_file(files, is_admin=admin, user_tier=account_tier(session))
             name = await db.get_info(parent)
             text = f"{name} - {query}"
             return web.Response(text=await render_page(parent, None, route='playlist', database=dphtml, msg=text, is_admin=admin, account_role=role_label), content_type='text/html')
+        except web.HTTPException:
+            raise
         except Exception as e:
             logging.critical(e.with_traceback(None))
             raise web.HTTPInternalServerError(text=str(e)) from e
@@ -754,7 +817,11 @@ async def stream_handler_watch(request: web.Request):
             record = await db.get_tgfile(chat_id, int(message_id))
             if record and record.get("access", "free") == "premium" and account_tier(session) != "premium":
                 raise web.HTTPForbidden(text="Premium membership required")
-            downloadable = bool(record.get("downloadable", True)) if record else True
+            try:
+                downloads_enabled = await db.get_variable("downloads_enabled")
+            except Exception:
+                downloads_enabled = None
+            downloadable = (bool(record.get("downloadable", True)) if record else True) and downloads_enabled is not False
             display_title = (record.get("display_title") or record.get("title")) if record else ""
             return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable, display_title=display_title), content_type='text/html')
         except StreamTokenError as e:

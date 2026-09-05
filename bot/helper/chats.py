@@ -56,26 +56,32 @@ async def posts_chat(channels):
     ) for channel in channels)
 
 
-async def post_playlist(playlists, is_admin=False):
-    dhtml = """
-    <div class="col">
-        <div class="card profile-card text-white bg-primary mb-2">
-            <a href="/playlist?db={cid}"><div class="img-container"><img class="lzy_img" data-src="{img}" alt="{title}"></div><div class="card-body"><h6 class="card-title">{title}</h6><span class="badge">Collection</span></div></a>
-            {admin_controls}
-        </div>
-    </div>
-    """
-
+async def post_playlist(playlists, is_admin=False, user_tier="free"):
     cards = []
     for playlist in playlists:
         cid = str(playlist["_id"])
         img = escape(str(playlist.get("thumbnail", "")), quote=True)
         title = escape(str(playlist["name"]), quote=True)
         parent = escape(str(playlist['parent_folder']), quote=True)
+        access = playlist.get("access", "free")
+        entitled = is_admin or user_tier == "premium" or access != "premium"
         controls = ''
         if is_admin:
-            controls = f'<details style="padding:0 15px 15px"><summary>Edit</summary><form action="/edit" method="post"><input type="hidden" name="folder_id" value="{cid}"><input type="hidden" name="parent" value="{parent}"><label>Name</label><input class="form-control" name="folderName" value="{title}" required><label>Cover URL</label><input class="form-control" name="thumbnail" value="{img}"><div class="actions" style="margin-top:10px"><button class="btn btn-primary btn-sm">Save</button><button type="button" class="btn btn-danger btn-sm" onclick="deleteRecord(\'{cid}\',\'{parent}\')">Delete</button></div></form></details>'
-        cards.append(dhtml.format(cid=cid, img=img, title=title, ctype=parent, admin_controls=controls))
+            premium_selected = " selected" if access == "premium" else ""
+            controls = f'<details class="card-admin"><summary>Manage collection</summary><form action="/edit" method="post"><input type="hidden" name="folder_id" value="{cid}"><input type="hidden" name="parent" value="{parent}"><label>Name</label><input class="form-control" name="folderName" value="{title}" required><label>Cover URL</label><input class="form-control" name="thumbnail" value="{img}"><label>Collection access</label><select class="form-select" name="access"><option value="free">Free</option><option value="premium"{premium_selected}>Premium only</option></select><div class="actions" style="margin-top:10px"><button class="btn btn-primary btn-sm">Save</button><button type="button" class="btn btn-danger btn-sm" onclick="deleteRecord(\'{cid}\',\'{parent}\')">Delete</button></div></form></details>'
+        badges = '<span class="badge">Collection</span>'
+        if access == "premium":
+            badges += '<span class="badge premium-badge">Premium</span>'
+        if not entitled:
+            badges += '<span class="badge">Locked</span>'
+        open_tag = f'<a href="/playlist?db={cid}">' if entitled else '<div class="locked-file">'
+        close_tag = '</a>' if entitled else '</div>'
+        cards.append(
+            '<div class="col"><div class="card profile-card">'
+            f'{open_tag}<div class="img-container"><img class="lzy_img" data-src="{img}" alt="{title}"></div>'
+            f'<div class="card-body"><h6 class="card-title">{title}</h6>{badges}</div>{close_tag}{controls}'
+            '</div></div>'
+        )
     return ''.join(cards)
 
 

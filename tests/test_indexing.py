@@ -21,6 +21,7 @@ os.environ.update({
 })
 
 from bot.helper import index
+from bot.helper.chats import post_playlist
 
 
 class IndexingTests(IsolatedAsyncioTestCase):
@@ -87,3 +88,12 @@ class IndexingTests(IsolatedAsyncioTestCase):
         self.assertIn("Rename display name", html)
         self.assertIn('value="Movie"', html)
         self.assertNotIn("Telegram original", html)
+
+    async def test_free_viewer_sees_premium_collection_as_locked(self):
+        html = await post_playlist(
+            [{"_id": "507f1f77bcf86cd799439011", "name": "Premium", "thumbnail": "", "parent_folder": "root", "access": "premium"}],
+            user_tier="free",
+        )
+        self.assertIn("Premium", html)
+        self.assertIn("Locked", html)
+        self.assertNotIn('href="/playlist?db=507f1f77bcf86cd799439011"', html)

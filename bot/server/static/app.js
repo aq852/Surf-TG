@@ -35,6 +35,11 @@ document.addEventListener("DOMContentLoaded",()=>{
   applyTheme(initial,false);
   if(picker)picker.addEventListener('change',()=>applyTheme(picker.value));
   toggles.forEach(button=>button.addEventListener('click',()=>applyTheme(body.dataset.theme==='light'?lastDark:'light')));
+  const nav=document.querySelector('.nav'),actions=nav?.querySelector('.nav-actions');
+  if(nav&&actions){
+    const menu=document.createElement('button');menu.type='button';menu.className='btn btn-sm mobile-nav-toggle';menu.textContent='Menu';menu.setAttribute('aria-expanded','false');
+    nav.appendChild(menu);menu.addEventListener('click',()=>{const open=actions.classList.toggle('mobile-open');menu.setAttribute('aria-expanded',String(open));menu.textContent=open?'Close':'Menu'});
+  }
   document.querySelectorAll('[data-back]').forEach(button=>button.addEventListener('click',()=>history.length>1?history.back():location.assign('/')));
   const themeSelect=document.getElementById('siteTheme');if(themeSelect)themeSelect.value=base;
   document.querySelectorAll("img[data-src]").forEach(img=>{img.src=img.dataset.src;img.removeAttribute("data-src")});
@@ -43,6 +48,7 @@ document.addEventListener("DOMContentLoaded",()=>{
   setPage("prevButton",page-1);setPage("nextButton",page+1);
   document.querySelectorAll("[data-copy]").forEach(button=>button.addEventListener("click",async()=>{await navigator.clipboard.writeText(button.dataset.copy);button.textContent="Copied";setTimeout(()=>button.textContent="Copy link",1200)}));
 });
+window.addEventListener('message',event=>{if(event.data?.type!=='akmv-ad-empty')return;document.querySelectorAll('iframe[data-network-ad]').forEach(frame=>{if(frame.contentWindow===event.source)frame.closest('.network-ad')?.remove()})});
 function checkSendButton(){const chosen=[...document.querySelectorAll('#selectCheckbox:checked')];const button=document.getElementById('sendButton');if(button)button.disabled=!chosen.length}
 async function sendPopupForm(){
   const chosen=[...document.querySelectorAll('#selectCheckbox:checked')].map(x=>x.dataset.id);

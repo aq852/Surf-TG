@@ -1,4 +1,4 @@
-# AkMovieVerse 3.0
+# AkMovieVerse 3.1
 
 AkMovieVerse is a self-hosted gateway for organizing and streaming media from **Telegram channels you are authorized to access**. It is the branded, security-focused evolution of Surf-TG maintained by [aq852](https://github.com/aq852).
 
@@ -23,6 +23,12 @@ It keeps the original project's direct workflow—sign in, open a channel, choos
 - Member profile with expiry countdown, self-service password changes, and Telegram owner support
 - Independently switchable manual ads and sandboxed Adsterra/Monetag publisher tags
 - Eight persistent themes, including Royal Gold, Aurora Glass, AMOLED Black, and Graphite Luxe
+- Mobile-first navigation with a compact Menu button on small screens
+- Dedicated `/admin` control centre for library, advertising, accounts, premium collections, and global downloads
+- Home tabs for channel/category browsing and the latest indexed uploads across every authorized channel
+- Premium-only collections, including nested collection protection
+- Global download switch that preserves existing individual file policies
+- VLC-compatible `.m3u` playlist download for desktop playback
 - Conservative filename cleanup for links, handles, and channel promotions
 - Optional, clearly labelled ad placement configured by environment variables
 - Docker deployment and automated regression tests
@@ -125,7 +131,9 @@ Re-run `/index` after changing filename-cleanup rules. Index batches are committ
 
 ## Accounts and premium access
 
-Sign in as the administrator and open **Viewer and premium accounts** to create a unique login for each member. Existing accounts can be opened to change their password, free/premium tier, enabled status, or automatic expiry date. On a channel page, open a file card's **Manage** panel to rename only its displayed title, mark it free or premium, hide its download button, or remove its indexed row. The channel danger zone can remove every indexed row in that channel at once; neither delete action removes the original Telegram messages.
+Sign in as the administrator and open **Admin** to create a unique login for each member. Existing accounts can be opened to change their password, free/premium tier, enabled status, or automatic expiry date. Collections can be created or updated as **Free** or **Premium only**. On a channel page, open a file card's **Manage** panel to rename only its displayed title, mark it free or premium, hide its download button, or remove its indexed row. The channel danger zone can remove every indexed row in that channel at once; neither delete action removes the original Telegram messages.
+
+The **Global downloads** policy in `/admin` can hide download buttons for the entire library while keeping browser streaming active. It does not overwrite per-file download choices, so turning it back on restores the individual settings.
 
 Members can open **Profile** to see their username, plan, and remaining account lifetime, change their own database-backed password, or contact the owner through `@AK_ownerbot`. Built-in environment accounts remain server-managed and do not expose password changes in the browser.
 
@@ -135,9 +143,9 @@ Members can open **Profile** to see their username, plan, and remaining account 
 
 Administrators can upload a PNG, JPEG, or WebP channel picture (maximum 5 MB) from the channel page. Library settings choose the default theme for new browsers. Every signed-in page also has a personal theme picker that remembers its selection in that browser. The sun/moon button switches to Ivory Daylight and then restores the viewer's last dark theme.
 
-The administrator can create a manual banner entirely under **Library and advertising settings**: enter its title, destination URL, and an optional image URL, then enable it. Values from `config.env` are initial fallbacks; saving the form stores the managed values in MongoDB. Manual and network ads can be enabled independently.
+The administrator can create a manual banner under **Admin**: enter its title, destination URL, and optional image URL, choose whether it appears everywhere, Home, channel, collection, or player pages, then enable it. Values from `config.env` are initial fallbacks; saving the form stores the managed values in MongoDB. Manual and network ads can be enabled independently.
 
-For Adsterra/Monetag, paste an **inline banner or native-banner** tag and choose its frame height. Popunder, direct-link, and click-trigger tags do not paint a visible banner in the page slot. Publisher JavaScript runs in a restricted sandboxed iframe, separate from AkMovieVerse session cookies and the parent page. Test on an approved public domain with browser ad blocking disabled: Brave Shields, DNS filters, and many publishers' localhost restrictions can suppress an otherwise valid tag. Network ads still involve third-party tracking and must comply with the provider's rules and the laws applicable to your visitors.
+For Adsterra/Monetag, paste an **inline banner or native-banner** tag and choose its frame height and placement. A Native tag normally contains both a script and a `div` container; paste both together. Popunder, Social Bar, Smartlink/direct-link, and click-trigger tags do not paint a visible banner in this slot, and are intentionally not run in the authenticated application page. Publisher JavaScript runs in a restricted sandboxed iframe, separate from AkMovieVerse session cookies and the parent page. If an inline slot is empty or blocked, it collapses automatically instead of leaving a white rectangle. Test on an approved public domain with browser ad blocking disabled: Brave Shields, DNS filters, and many publishers' localhost restrictions can suppress an otherwise valid tag. Network ads still involve third-party tracking and must comply with the provider's rules and the laws applicable to your visitors.
 
 ## Tests
 
@@ -168,4 +176,4 @@ Old `?hash=abcdef` stream and watch links are intentionally invalid. Open the fi
 
 ## License, attribution, and credits
 
-GPL-3.0. This project is derived from [weebzone/Surf-TG](https://github.com/weebzone/Surf-TG); the original copyright and license are preserved in `LICENSE`. The AkMovieVerse 2.0/3.0 redesign, security hardening, indexing repairs, access controls, account system, and interface work are maintained by [aq852](https://github.com/aq852) with Codex-assisted implementation. See [the upgrade record](docs/AKMOVIEVERSE_CHANGES.md).
+GPL-3.0. This project is derived from [weebzone/Surf-TG](https://github.com/weebzone/Surf-TG); the original copyright and license are preserved in `LICENSE`. The AkMovieVerse 2.0/3.1 redesign, security hardening, indexing repairs, access controls, account system, and interface work are maintained by [aq852](https://github.com/aq852) with Codex-assisted implementation. See [the upgrade record](docs/AKMOVIEVERSE_CHANGES.md).

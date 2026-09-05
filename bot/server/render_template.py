@@ -35,10 +35,12 @@ async def _ad_preferences():
         "manual_ad_title": Telegram.AD_TITLE,
         "manual_ad_url": Telegram.AD_URL,
         "manual_ad_image_url": Telegram.AD_IMAGE_URL,
+        "manual_ad_placement": "all",
         "network_ads_enabled": False,
         "ad_provider": "adsterra",
         "ad_code": "",
         "ad_height": 100,
+        "network_ad_placement": "all",
     }
     for key in tuple(defaults):
         try:
@@ -50,20 +52,45 @@ async def _ad_preferences():
     return defaults
 
 
-async def _ad_slot(is_admin=False):
+def _apply_admin_settings(html, preferences, downloads_enabled):
+    return (html
+        .replace("<!-- ManualAdsChecked -->", "checked" if preferences["manual_ads_enabled"] else "")
+        .replace("<!-- ManualAdTitle -->", escape(str(preferences["manual_ad_title"] or ""), quote=True))
+        .replace("<!-- ManualAdUrl -->", escape(str(preferences["manual_ad_url"] or ""), quote=True))
+        .replace("<!-- ManualAdImageUrl -->", escape(str(preferences["manual_ad_image_url"] or ""), quote=True))
+        .replace("<!-- NetworkAdsChecked -->", "checked" if preferences["network_ads_enabled"] else "")
+        .replace("<!-- AdsterraSelected -->", "selected" if preferences["ad_provider"] == "adsterra" else "")
+        .replace("<!-- MonetagSelected -->", "selected" if preferences["ad_provider"] == "monetag" else "")
+        .replace("<!-- AdHeight -->", escape(str(preferences["ad_height"]), quote=True))
+        .replace("<!-- AdCode -->", escape(str(preferences["ad_code"])))
+        .replace("<!-- ManualAllSelected -->", "selected" if preferences["manual_ad_placement"] == "all" else "")
+        .replace("<!-- ManualHomeSelected -->", "selected" if preferences["manual_ad_placement"] == "home" else "")
+        .replace("<!-- ManualChannelSelected -->", "selected" if preferences["manual_ad_placement"] == "channel" else "")
+        .replace("<!-- ManualCollectionSelected -->", "selected" if preferences["manual_ad_placement"] == "collection" else "")
+        .replace("<!-- ManualPlayerSelected -->", "selected" if preferences["manual_ad_placement"] == "player" else "")
+        .replace("<!-- NetworkAllSelected -->", "selected" if preferences["network_ad_placement"] == "all" else "")
+        .replace("<!-- NetworkHomeSelected -->", "selected" if preferences["network_ad_placement"] == "home" else "")
+        .replace("<!-- NetworkChannelSelected -->", "selected" if preferences["network_ad_placement"] == "channel" else "")
+        .replace("<!-- NetworkCollectionSelected -->", "selected" if preferences["network_ad_placement"] == "collection" else "")
+        .replace("<!-- NetworkPlayerSelected -->", "selected" if preferences["network_ad_placement"] == "player" else "")
+        .replace("<!-- DownloadsEnabled -->", "checked" if downloads_enabled is not False else "")
+    )
+
+
+async def _ad_slot(is_admin=False, placement="home"):
     preferences = await _ad_preferences()
     title = str(preferences["manual_ad_title"] or "").strip()
     target = _safe_external_url(str(preferences["manual_ad_url"] or "").strip())
     image = _safe_external_url(str(preferences["manual_ad_image_url"] or "").strip())
     slots = []
-    if preferences["manual_ads_enabled"] and title and target:
+    if preferences["manual_ads_enabled"] and preferences["manual_ad_placement"] in {"all", placement} and title and target:
         picture = f'<img src="{escape(image, quote=True)}" alt="Advertisement">' if image else ""
         slots.append(
-            '<aside class="ad-slot"><span class="ad-label">Advertisement</span>'
+            '<aside class="ad-slot manual-ad"><span class="ad-label">Advertisement</span>'
             f'<a href="{escape(target, quote=True)}" target="_blank" rel="nofollow sponsored noopener">'
             f'{picture}<strong>{escape(title)}</strong></a></aside>'
         )
-    if preferences["network_ads_enabled"] and preferences["ad_code"]:
+    if preferences["network_ads_enabled"] and preferences["network_ad_placement"] in {"all", placement} and preferences["ad_code"]:
         provider = escape(str(preferences["ad_provider"]).title())
         try:
             height = max(50, min(600, int(preferences["ad_height"])))
@@ -76,7 +103,7 @@ async def _ad_slot(is_admin=False):
         )
         slots.append(
             '<aside class="ad-slot network-ad"><span class="ad-label">Advertisement</span>'
-            f'<iframe src="/ads/network" title="{provider} advertisement" style="height:{height}px" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" '
+            f'<iframe data-network-ad src="/ads/network" title="{provider} advertisement" style="height:{height}px" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" '
             f'loading="lazy" referrerpolicy="strict-origin-when-cross-origin" scrolling="no"></iframe>{admin_help}</aside>'
         )
     return "".join(slots)
@@ -105,20 +132,34 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
         if not auth_channels:
             auth_channels = ", ".join(Telegram.AUTH_CHANNEL)
         async with aiopen(ospath.join(tpath, 'home.html'), 'r', encoding='utf-8') as f:
-            html = (await f.read()).replace("<!-- Print -->", html).replace("<!-- Playlist -->", playlist).replace("<!-- Accounts -->", accounts).replace("<!-- AuthChannels -->", escape(str(auth_channels), quote=True))
-            ad_preferences = await _ad_preferences()
-            html = (html
-                .replace("<!-- ManualAdsChecked -->", "checked" if ad_preferences["manual_ads_enabled"] else "")
-                .replace("<!-- ManualAdTitle -->", escape(str(ad_preferences["manual_ad_title"] or ""), quote=True))
-                .replace("<!-- ManualAdUrl -->", escape(str(ad_preferences["manual_ad_url"] or ""), quote=True))
-                .replace("<!-- ManualAdImageUrl -->", escape(str(ad_preferences["manual_ad_image_url"] or ""), quote=True))
-                .replace("<!-- NetworkAdsChecked -->", "checked" if ad_preferences["network_ads_enabled"] else "")
-                .replace("<!-- AdsterraSelected -->", "selected" if ad_preferences["ad_provider"] == "adsterra" else "")
-                .replace("<!-- MonetagSelected -->", "selected" if ad_preferences["ad_provider"] == "monetag" else "")
-                .replace("<!-- AdHeight -->", escape(str(ad_preferences["ad_height"]), quote=True))
-                .replace("<!-- AdCode -->", escape(str(ad_preferences["ad_code"]))))
+            view = display_title if display_title in {"channels", "latest"} else "channels"
+            html = ((await f.read())
+                .replace("<!-- Print -->", html)
+                .replace("<!-- Playlist -->", playlist)
+                .replace("<!-- Latest -->", database)
+                .replace("<!-- ChannelsActive -->", "active" if view == "channels" else "")
+                .replace("<!-- LatestActive -->", "active" if view == "latest" else "")
+                .replace("<!-- ChannelsHidden -->", "" if view == "channels" else "hidden")
+                .replace("<!-- LatestHidden -->", "" if view == "latest" else "hidden"))
             if not is_admin and Telegram.HIDE_CHANNEL:
                 html += hide_channel
+    elif route == 'admin':
+        try:
+            auth_channels = await db.get_variable('auth_channel')
+        except Exception:
+            auth_channels = None
+        if not auth_channels:
+            auth_channels = ", ".join(Telegram.AUTH_CHANNEL)
+        preferences = await _ad_preferences()
+        try:
+            downloads_enabled = await db.get_variable("downloads_enabled")
+        except Exception:
+            downloads_enabled = None
+        async with aiopen(ospath.join(tpath, 'admin.html'), 'r', encoding='utf-8') as f:
+            html = ((await f.read())
+                .replace("<!-- Accounts -->", accounts)
+                .replace("<!-- AuthChannels -->", escape(str(auth_channels), quote=True)))
+            html = _apply_admin_settings(html, preferences, downloads_enabled)
     elif route == 'playlist':
         async with aiopen(ospath.join(tpath, 'playlist.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Playlist -->", playlist).replace("<!-- Database -->", database).replace("<!-- Title -->", safe_title).replace("<!-- Parent_id -->", escape(str(id or ""), quote=True))
@@ -128,7 +169,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
     elif route == 'profile':
         async with aiopen(ospath.join(tpath, 'profile.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Profile -->", html)
-    if route in {'home', 'playlist', 'index', 'profile'}:
+    if route in {'home', 'playlist', 'index', 'profile', 'admin'}:
         if not is_admin:
             html = re.sub(r'<!-- ADMIN_START -->.*?<!-- ADMIN_END -->', '', html, flags=re.DOTALL)
         else:
@@ -161,7 +202,8 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             html = re.sub(r'<!-- DOWNLOAD_START -->.*?<!-- DOWNLOAD_END -->', '', html, flags=re.DOTALL)
         else:
             html = html.replace('<!-- DOWNLOAD_START -->', '').replace('<!-- DOWNLOAD_END -->', '')
-    return _finish_page(html, theme, is_admin, await _ad_slot(is_admin))
+    placement = {"home": "home", "index": "channel", "playlist": "collection"}.get(route, "player")
+    return _finish_page(html, theme, is_admin, await _ad_slot(is_admin, placement))
 
 
 def _finish_page(html, theme, is_admin, ad_slot):
