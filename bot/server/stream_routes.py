@@ -7,7 +7,7 @@ import re
 import asyncio
 from datetime import datetime, time as datetime_time, timezone
 from html import escape
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from aiohttp import web
 from bot.helper.chats import get_chats, get_authorized_chat_ids, post_playlist, posts_chat, posts_db_file
 from bot.helper.database import Database
@@ -43,6 +43,16 @@ def _image_type(content):
     if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
         return "image/webp"
     return None
+
+
+def _external_url(value, field_name, required=False):
+    value = str(value or "").strip()
+    if not value and not required:
+        return ""
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise web.HTTPBadRequest(text=f"{field_name} must be a complete HTTP(S) URL")
+    return value
 
 
 async def _users_html():
@@ -349,6 +359,16 @@ async def editConfig_route(request):
         raise web.HTTPBadRequest(text="Invalid channel ID list") from exc
     ad_provider = str(data.get("ad_provider", "adsterra")).lower()
     ad_code = str(data.get("ad_code", "")).strip()
+    manual_ads_enabled = data.get("manual_ads_enabled") == "yes"
+    manual_ad_title = str(data.get("manual_ad_title", "")).strip()
+    if len(manual_ad_title) > 120:
+        raise web.HTTPBadRequest(text="Manual ad title is too long")
+    manual_ad_url = _external_url(
+        data.get("manual_ad_url"), "Manual ad destination", required=manual_ads_enabled
+    )
+    manual_ad_image_url = _external_url(data.get("manual_ad_image_url"), "Manual ad image")
+    if manual_ads_enabled and not manual_ad_title:
+        raise web.HTTPBadRequest(text="Add a manual ad title before enabling it")
     if ad_provider not in {"adsterra", "monetag"}:
         raise web.HTTPBadRequest(text="Invalid ad provider")
     if len(ad_code) > 50000:
@@ -365,7 +385,10 @@ async def editConfig_route(request):
     success = await db.update_config(
         theme=theme,
         auth_channel=channel,
-        manual_ads_enabled=data.get("manual_ads_enabled") == "yes",
+        manual_ads_enabled=manual_ads_enabled,
+        manual_ad_title=manual_ad_title,
+        manual_ad_url=manual_ad_url,
+        manual_ad_image_url=manual_ad_image_url,
         network_ads_enabled=network_ads_enabled,
         ad_provider=ad_provider,
         ad_code=ad_code,
@@ -481,13 +504,17 @@ async def network_ad_route(request):
         raise web.HTTPNotFound()
     document = (
         '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<style>html,body{margin:0;min-height:100%;display:grid;place-items:center;background:transparent;overflow:hidden}</style></head>'
-        f'<body>{code}</body></html>'
+        '<style>html,body{margin:0;min-height:100%;background:transparent;overflow:hidden}body{display:grid;place-items:center}'
+        '#ad-fallback{padding:10px;color:#8b93a7;font:12px system-ui;text-align:center}</style></head>'
+        f'<body>{code}<div id="ad-fallback" hidden>Advertisement unavailable</div><script>'
+        'setTimeout(()=>{const f=document.getElementById("ad-fallback");const visual=[...document.body.children].some('
+        'el=>el!==f&&el.tagName!=="SCRIPT"&&el.tagName!=="STYLE"&&el.getBoundingClientRect().height>10);'
+        'if(!visual)f.hidden=false},4000)</script></body></html>'
     )
     return web.Response(text=document, content_type="text/html", headers={
-        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline' https:; img-src https: data:; connect-src https:; frame-src https:; style-src 'unsafe-inline'; form-action https:; frame-ancestors 'self'",
+        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline' https:; img-src https: data: blob:; connect-src https: wss:; frame-src https:; media-src https: data: blob:; font-src https: data:; worker-src https: blob:; style-src 'unsafe-inline' https:; form-action https:; frame-ancestors 'self'",
         "X-Frame-Options": "SAMEORIGIN",
-        "Referrer-Policy": "no-referrer",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
     })
 
 

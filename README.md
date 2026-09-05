@@ -88,9 +88,9 @@ Important settings:
 | `SITE_CREDIT` | Footer credit; defaults to `By AkMovieVerse` |
 | `THEME` | Default for new browsers: `midnight`, `cinema`, `ocean`, `royal`, `aurora`, `amoled`, `graphite`, or `light` |
 | `FILENAME_CLEANUP_REGEX` | Optional additional case-insensitive regex removed from indexed titles |
-| `AD_TITLE` | Advertisement label/text; leave empty to disable ad slots |
-| `AD_URL` | Required HTTP(S) destination when an ad is enabled |
-| `AD_IMAGE_URL` | Optional HTTP(S) ad image |
+| `AD_TITLE` | Optional initial manual-ad text; it can later be managed from the admin UI |
+| `AD_URL` | Optional initial manual-ad HTTP(S) destination |
+| `AD_IMAGE_URL` | Optional initial manual-ad HTTP(S) image |
 | `SUPPORT_USERNAME` | Telegram support username; defaults to `AK_ownerbot` |
 
 ## Run with Docker
@@ -135,7 +135,9 @@ Members can open **Profile** to see their username, plan, and remaining account 
 
 Administrators can upload a PNG, JPEG, or WebP channel picture (maximum 5 MB) from the channel page. Library settings choose the default theme for new browsers. Every signed-in page also has a personal theme picker that remembers its selection in that browser. The sun/moon button switches to Ivory Daylight and then restores the viewer's last dark theme.
 
-The administrator can independently enable the existing manual ad or a publisher tag from Adsterra/Monetag under **Library and advertising settings**. Paste the exact tag issued by the selected publisher dashboard and choose its frame height. Publisher JavaScript runs in a restricted sandboxed iframe, separate from AkMovieVerse session cookies and the parent page. Network ads still involve third-party tracking and must comply with the provider's rules and the laws applicable to your visitors.
+The administrator can create a manual banner entirely under **Library and advertising settings**: enter its title, destination URL, and an optional image URL, then enable it. Values from `config.env` are initial fallbacks; saving the form stores the managed values in MongoDB. Manual and network ads can be enabled independently.
+
+For Adsterra/Monetag, paste an **inline banner or native-banner** tag and choose its frame height. Popunder, direct-link, and click-trigger tags do not paint a visible banner in the page slot. Publisher JavaScript runs in a restricted sandboxed iframe, separate from AkMovieVerse session cookies and the parent page. Test on an approved public domain with browser ad blocking disabled: Brave Shields, DNS filters, and many publishers' localhost restrictions can suppress an otherwise valid tag. Network ads still involve third-party tracking and must comply with the provider's rules and the laws applicable to your visitors.
 
 ## Tests
 

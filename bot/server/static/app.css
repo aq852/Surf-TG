@@ -18,3 +18,5 @@ body[data-theme="royal"] .panel,body[data-theme="royal"] .card{background:linear
 .channel-hero{justify-content:flex-start;align-items:center}.channel-avatar{width:92px;height:92px;flex:0 0 92px;border:2px solid var(--line);border-radius:24px;object-fit:cover;background:var(--panel)}
 @media(max-width:720px){.form-grid,.profile-grid{grid-template-columns:1fr}.profile-page{padding-top:28px}.nav-actions{justify-content:flex-end}.nav-actions .badge{display:none}.brand span{max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mobile-only{display:flex}}
 @media(prefers-reduced-motion:reduce){body,.card{transition:none}.card:hover{transform:none}}
+.network-ad{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 12px}.network-ad iframe{display:block;width:100%;border:0;border-radius:9px;background:var(--panel2)}.ad-network-help{grid-column:2;color:var(--muted);font-size:11px}
+@media(max-width:720px){.network-ad{grid-template-columns:1fr}.network-ad .ad-label,.ad-network-help{grid-column:1}}

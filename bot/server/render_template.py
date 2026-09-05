@@ -32,6 +32,9 @@ def _safe_external_url(value):
 async def _ad_preferences():
     defaults = {
         "manual_ads_enabled": bool(Telegram.AD_TITLE and Telegram.AD_URL),
+        "manual_ad_title": Telegram.AD_TITLE,
+        "manual_ad_url": Telegram.AD_URL,
+        "manual_ad_image_url": Telegram.AD_IMAGE_URL,
         "network_ads_enabled": False,
         "ad_provider": "adsterra",
         "ad_code": "",
@@ -47,17 +50,18 @@ async def _ad_preferences():
     return defaults
 
 
-async def _ad_slot():
+async def _ad_slot(is_admin=False):
     preferences = await _ad_preferences()
-    target = _safe_external_url(Telegram.AD_URL)
-    image = _safe_external_url(Telegram.AD_IMAGE_URL)
+    title = str(preferences["manual_ad_title"] or "").strip()
+    target = _safe_external_url(str(preferences["manual_ad_url"] or "").strip())
+    image = _safe_external_url(str(preferences["manual_ad_image_url"] or "").strip())
     slots = []
-    if preferences["manual_ads_enabled"] and Telegram.AD_TITLE and target:
+    if preferences["manual_ads_enabled"] and title and target:
         picture = f'<img src="{escape(image, quote=True)}" alt="Advertisement">' if image else ""
         slots.append(
             '<aside class="ad-slot"><span class="ad-label">Advertisement</span>'
             f'<a href="{escape(target, quote=True)}" target="_blank" rel="nofollow sponsored noopener">'
-            f'{picture}<strong>{escape(Telegram.AD_TITLE)}</strong></a></aside>'
+            f'{picture}<strong>{escape(title)}</strong></a></aside>'
         )
     if preferences["network_ads_enabled"] and preferences["ad_code"]:
         provider = escape(str(preferences["ad_provider"]).title())
@@ -65,10 +69,15 @@ async def _ad_slot():
             height = max(50, min(600, int(preferences["ad_height"])))
         except (TypeError, ValueError):
             height = 100
+        admin_help = (
+            '<small class="ad-network-help">Only inline banner/native-banner tags draw inside this slot. '
+            'Popunder tags have no visible banner; localhost or browser ad blocking can also suppress publisher ads.</small>'
+            if is_admin else ""
+        )
         slots.append(
             '<aside class="ad-slot network-ad"><span class="ad-label">Advertisement</span>'
             f'<iframe src="/ads/network" title="{provider} advertisement" style="height:{height}px" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" '
-            'loading="lazy" referrerpolicy="no-referrer" scrolling="no"></iframe></aside>'
+            f'loading="lazy" referrerpolicy="strict-origin-when-cross-origin" scrolling="no"></iframe>{admin_help}</aside>'
         )
     return "".join(slots)
 
@@ -100,6 +109,9 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             ad_preferences = await _ad_preferences()
             html = (html
                 .replace("<!-- ManualAdsChecked -->", "checked" if ad_preferences["manual_ads_enabled"] else "")
+                .replace("<!-- ManualAdTitle -->", escape(str(ad_preferences["manual_ad_title"] or ""), quote=True))
+                .replace("<!-- ManualAdUrl -->", escape(str(ad_preferences["manual_ad_url"] or ""), quote=True))
+                .replace("<!-- ManualAdImageUrl -->", escape(str(ad_preferences["manual_ad_image_url"] or ""), quote=True))
                 .replace("<!-- NetworkAdsChecked -->", "checked" if ad_preferences["network_ads_enabled"] else "")
                 .replace("<!-- AdsterraSelected -->", "selected" if ad_preferences["ad_provider"] == "adsterra" else "")
                 .replace("<!-- MonetagSelected -->", "selected" if ad_preferences["ad_provider"] == "monetag" else "")
@@ -149,7 +161,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             html = re.sub(r'<!-- DOWNLOAD_START -->.*?<!-- DOWNLOAD_END -->', '', html, flags=re.DOTALL)
         else:
             html = html.replace('<!-- DOWNLOAD_START -->', '').replace('<!-- DOWNLOAD_END -->', '')
-    return _finish_page(html, theme, is_admin, await _ad_slot())
+    return _finish_page(html, theme, is_admin, await _ad_slot(is_admin))
 
 
 def _finish_page(html, theme, is_admin, ad_slot):

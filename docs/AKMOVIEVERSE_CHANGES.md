@@ -18,7 +18,7 @@ The `aq852/Surf-TG` evolution introduced:
 - database-backed individual viewer accounts with PBKDF2 password hashes;
 - account password reset, tier/status editing, and automatic UTC-date expiry;
 - self-service member profiles, password changes, expiry countdown, and owner support;
-- independently controlled manual and sandboxed publisher-network advertising;
+- database-managed manual banners and independently controlled, sandboxed publisher-network advertising;
 - display-only indexed filename renaming and channel-wide index cleanup;
 - persistent per-browser theme selection with midnight, cinema, ocean, Royal Gold, Aurora Glass, AMOLED Black, Graphite Luxe, and Ivory Daylight palettes;
 - optional ad placements without bundled tracking code;

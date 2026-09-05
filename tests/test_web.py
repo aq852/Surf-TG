@@ -264,8 +264,83 @@ class WebSmokeTests(AioHTTPTestCase):
         html = await response.text()
         self.assertEqual(200, response.status)
         self.assertIn("https://ads.example/tag.js", html)
+        self.assertIn("Advertisement unavailable", html)
         self.assertEqual("SAMEORIGIN", response.headers["X-Frame-Options"])
         self.assertIn("frame-ancestors 'self'", response.headers["Content-Security-Policy"])
+        self.assertIn("connect-src https: wss:", response.headers["Content-Security-Policy"])
+
+    async def test_manual_ad_is_managed_and_rendered_from_database(self):
+        values = {
+            "manual_ads_enabled": True,
+            "manual_ad_title": "Premium offer",
+            "manual_ad_url": "https://example.com/offer?from=library",
+            "manual_ad_image_url": "https://example.com/banner.jpg",
+        }
+        with patch(
+            "bot.server.render_template.db.get_variable",
+            AsyncMock(side_effect=lambda key: values.get(key)),
+        ):
+            html = await render_page(
+                None, None, route="home", html="", playlist="", is_admin=True
+            )
+        self.assertIn("Premium offer", html)
+        self.assertIn('href="https://example.com/offer?from=library"', html)
+        self.assertIn('src="https://example.com/banner.jpg"', html)
+        self.assertIn('name="manual_ad_title"', html)
+
+    async def test_admin_can_save_manual_ad_settings(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        with patch("bot.server.stream_routes.db.update_config", AsyncMock(return_value=True)) as update:
+            response = await self.client.post(
+                "/config",
+                data={
+                    "theme": "midnight",
+                    "channel": "-100123",
+                    "manual_ads_enabled": "yes",
+                    "manual_ad_title": "Premium offer",
+                    "manual_ad_url": "https://example.com/offer",
+                    "manual_ad_image_url": "https://example.com/banner.jpg",
+                    "ad_provider": "adsterra",
+                    "ad_height": "100",
+                    "ad_code": "",
+                },
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        self.assertEqual("Premium offer", update.await_args.kwargs["manual_ad_title"])
+        self.assertEqual("https://example.com/offer", update.await_args.kwargs["manual_ad_url"])
+
+    async def test_manual_ad_rejects_non_http_destination(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        response = await self.client.post(
+            "/config",
+            data={
+                "theme": "midnight",
+                "channel": "-100123",
+                "manual_ads_enabled": "yes",
+                "manual_ad_title": "Unsafe offer",
+                "manual_ad_url": "javascript:alert(1)",
+                "ad_provider": "adsterra",
+                "ad_height": "100",
+                "ad_code": "",
+            },
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        self.assertEqual(400, response.status)
 
     async def test_viewer_html_contains_no_admin_controls(self):
         with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
@@ -295,6 +370,8 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("Aurora Glass", html)
         self.assertIn("AMOLED Black", html)
         self.assertIn("Graphite Luxe", html)
+        self.assertIn("Manual advertisement", html)
+        self.assertIn("Inline banner publisher tag", html)
 
     async def test_saved_premium_theme_is_rendered_before_javascript(self):
         values = {"theme": "royal"}
