@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, patch
 
 from bot.server import web_server
 from bot.server.render_template import render_page
+from bot.server.stream_routes import _image_type
 
 
 class WebSmokeTests(AioHTTPTestCase):
@@ -32,6 +33,8 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertEqual(response.status, 200)
         text = await response.text()
         self.assertIn("Welcome back", text)
+        self.assertIn("AkMovieVerse", text)
+        self.assertNotIn("Â", text)
         self.assertEqual(response.headers["X-Frame-Options"], "DENY")
         self.assertIn("default-src 'self'", response.headers["Content-Security-Policy"])
 
@@ -76,6 +79,39 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertEqual(second.status, 200)
         self.assertIn("Invalid username or password", await second.text())
 
+    async def test_database_backed_account_can_login(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        account = {"username": "member1", "role": "viewer", "tier": "premium"}
+        with patch("bot.server.stream_routes.authenticate", AsyncMock(return_value=account)):
+            response = await self.client.post(
+                "/login",
+                data={"username": "member1", "password": "member-password"},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+
+    async def test_admin_can_delete_an_index_row(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        with (
+            patch("bot.server.stream_routes.get_authorized_chat_ids", AsyncMock(return_value={-100123})),
+            patch("bot.server.stream_routes.db.delete_tgfile", AsyncMock(return_value=1)) as delete,
+        ):
+            response = await self.client.post(
+                "/indexed/delete",
+                data={"chat_id": "123", "message_id": "7"},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        delete.assert_awaited_once_with(-100123, 7)
+
     async def test_viewer_html_contains_no_admin_controls(self):
         with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
             html = await render_page(
@@ -92,6 +128,12 @@ class WebSmokeTests(AioHTTPTestCase):
                 None, None, route="home", html="", playlist="", is_admin=True
             )
         self.assertIn("Library settings", html)
+        self.assertIn("Viewer and premium accounts", html)
         self.assertIn("Create a collection", html)
         self.assertNotIn("ADMIN_START", html)
         self.assertIn("Administrator", html)
+
+    def test_channel_cover_magic_detection(self):
+        self.assertEqual("image/png", _image_type(b"\x89PNG\r\n\x1a\nrest"))
+        self.assertEqual("image/jpeg", _image_type(b"\xff\xd8\xffrest"))
+        self.assertIsNone(_image_type(b"<svg>unsafe</svg>"))

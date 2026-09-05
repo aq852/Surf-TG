@@ -16,10 +16,12 @@ async def get_image(chat_id, message_id):
             img = await StreamBot.download_media(str(chat.photo.big_file_id)) if chat.photo else path
         else:
             msg = await StreamBot.get_messages(int(chat_id), int(message_id))
-            img = await StreamBot.download_media(str(msg.video.thumbs[0].file_id)) if msg.video else path
+            media = msg.video or msg.document
+            thumbs = getattr(media, "thumbs", None) if media else None
+            img = await StreamBot.download_media(str(thumbs[0].file_id)) if thumbs else path
 
         image_cache[cache_key] = img
         return img
     except Exception as e:
         LOGGER.error(f"Generate Img Error: {e}")
-        return
+        return path

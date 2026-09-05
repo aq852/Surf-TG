@@ -1,4 +1,3 @@
-import re
 from asyncio import sleep
 from os.path import splitext
 
@@ -11,6 +10,7 @@ from bot import LOGGER
 from bot.config import Telegram
 from bot.helper.database import Database
 from bot.helper.file_size import get_readable_file_size
+from bot.helper.filename import clean_filename
 from bot.helper.index import get_messages
 from bot.helper.media import is_media
 from bot.telegram import StreamBot
@@ -37,7 +37,7 @@ async def authorized_channels() -> set[str]:
 @StreamBot.on_message(filters.command("start") & filters.private)
 async def start_command(bot: Client, message: Message):
     if "file_" not in (message.text or ""):
-        await message.reply("Surf-TG is online. Open your private web library to browse files.")
+        await message.reply(f"{Telegram.SITE_NAME} is online. Open your private web library to browse files.")
         return
     if not message.from_user or message.from_user.id not in Telegram.ALLOWED_TELEGRAM_USERS:
         await message.reply("This private file shortcut is not enabled for your Telegram account.")
@@ -98,7 +98,7 @@ async def index_command(bot: Client, message: Message):
     except Exception:
         LOGGER.exception("Channel indexing failed for channel %s", message.chat.id)
         try:
-            await message.reply("Indexing failed. Check the Surf-TG terminal for the detailed error.")
+            await message.reply(f"Indexing failed. Check the {Telegram.SITE_NAME} terminal for the detailed error.")
         except Exception:
             pass
 
@@ -112,7 +112,7 @@ async def file_receive_handler(bot: Client, message: Message):
         file = message.video or message.document
         title = file.file_name or message.caption or file.file_id
         title, _ = splitext(title)
-        title = re.sub(r"[.,|_']", " ", title)
+        title = clean_filename(title)
         added = await db.add_tgfiles(
             str(message.chat.id), str(message.id), str(file.file_unique_id),
             title, get_readable_file_size(file.file_size), str(file.mime_type),

@@ -20,6 +20,11 @@ class SecurityTests(unittest.TestCase):
         claim = verify_stream_token("s" * 32, token, now=120)
         self.assertEqual((claim.chat_id, claim.message_id, claim.expires_at), (-100123, 42, 160))
 
+    def test_download_scope_is_signed(self):
+        token = create_stream_token("s" * 32, -100123, 42, scope="download", now=100)
+        claim = verify_stream_token("s" * 32, token, now=101)
+        self.assertEqual("download", claim.scope)
+
     def test_tampered_and_expired_tokens_fail(self):
         token = create_stream_token("s" * 32, -100123, 42, ttl=10, now=100)
         with self.assertRaises(StreamTokenError):

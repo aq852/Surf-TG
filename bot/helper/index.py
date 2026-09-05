@@ -1,10 +1,10 @@
 from os.path import splitext
-import re
 from html import escape
 from bot.config import Telegram
 from bot.helper.database import Database
 from bot.telegram import StreamBot, UserBot
 from bot.helper.file_size import get_readable_file_size
+from bot.helper.filename import clean_filename
 from bot.helper.cache import get_cache, save_cache
 from bot import LOGGER
 from bot.helper.security import create_stream_token
@@ -24,7 +24,7 @@ async def get_messages(chat_id, first_message_id, last_message_id, batch_size=20
                 if file := message.video or message.document:
                     title = file.file_name or message.caption or file.file_id
                     title, _ = splitext(title)
-                    title = re.sub(r'[.,|_\',]', ' ', title)
+                    title = clean_filename(title)
                     batch_files.append({"msg_id": str(message.id), "title": title,
                                         "hash": file.file_unique_id[:6], "size": get_readable_file_size(file.file_size),
                                         "type": file.mime_type, "chat_id": str(chat_id)})
@@ -54,41 +54,63 @@ async def get_files(chat_id, page=1):
             continue
         title = file.file_name or post.caption or file.file_id
         title, _ = splitext(title)
-        title = re.sub(r'[.,|_\',]', ' ', title)
+        title = clean_filename(title)
         posts.append({"msg_id": post.id, "title": title,
                     "hash": file.file_unique_id[:6], "size": get_readable_file_size(file.file_size), "type": file.mime_type})
     save_cache(chat_id, {"posts": posts}, page)
     return posts
 
-async def posts_file(posts, chat_id, is_admin=False):
+async def posts_file(posts, chat_id, is_admin=False, user_tier="free"):
     phtml = """
             <div class="col">
                 
                     <div class="card text-white bg-primary mb-3">
         {admin_checkbox}
+                        {open_tag}
                         <img src="/static/placeholder.svg" class="lzy_img card-img-top rounded-top"
                             data-src="{img}" alt="{title}">
-                        <a href="/watch/{chat_id}?id={id}&hash={hash}">
                         <div class="card-body p-1">
                             <h6 class="card-title">{title}</h6>
                             <span class="badge bg-warning">{type}</span>
                             <span class="badge bg-info">{size}</span>
                         </div>
-                        </a>
+                        {close_tag}
+                        {admin_controls}
                     </div>
                 
             </div>
 """
     cards = []
     for post in posts:
-        token = create_stream_token(
-            Telegram.SECRET_KEY, int(chat_id), int(post["msg_id"]), ttl=Telegram.STREAM_TOKEN_TTL
-        )
+        access = post.get("access", "free")
+        entitled = is_admin or user_tier == "premium" or access != "premium"
+        token = create_stream_token(Telegram.SECRET_KEY, int(chat_id), int(post["msg_id"]), ttl=Telegram.STREAM_TOKEN_TTL) if entitled else ""
+        public_chat_id = str(chat_id).removeprefix("-100")
+        admin_controls = ""
+        if is_admin:
+            checked = " checked" if post.get("downloadable", True) else ""
+            selected = " selected" if access == "premium" else ""
+            admin_controls = (
+                '<details class="card-admin"><summary>Manage</summary>'
+                '<form action="/indexed/settings" method="post">'
+                f'<input type="hidden" name="chat_id" value="{public_chat_id}">'
+                f'<input type="hidden" name="message_id" value="{int(post["msg_id"])}">'
+                '<label>Access</label><select class="form-select" name="access">'
+                f'<option value="free">Free</option><option value="premium"{selected}>Premium</option></select>'
+                f'<label class="check-label"><input type="checkbox" name="downloadable" value="yes"{checked}> Allow download button</label>'
+                '<button class="btn btn-primary btn-sm">Save</button></form>'
+                '<form action="/indexed/delete" method="post" onsubmit="return confirm(\'Remove this indexed file?\')">'
+                f'<input type="hidden" name="chat_id" value="{public_chat_id}"><input type="hidden" name="message_id" value="{int(post["msg_id"])}">'
+                '<button class="btn btn-danger btn-sm">Delete index</button></form></details>'
+            )
         cards.append(phtml.format(
-            chat_id=str(chat_id).replace("-100", ""), id=int(post["msg_id"]),
+            chat_id=public_chat_id, id=int(post["msg_id"]),
             img=f"/api/thumb/{chat_id}?id={int(post['msg_id'])}",
             title=escape(str(post["title"])), hash=token,
             size=escape(str(post['size'])), type=escape(str(post['type'])),
+            open_tag=(f'<a href="/watch/{public_chat_id}?id={int(post["msg_id"])}&token={token}">' if entitled else '<div class="locked-file">'),
+            close_tag='</a>' if entitled else '</div>',
+            admin_controls=admin_controls,
             admin_checkbox=(
                 '<input type="checkbox" class="form-check-input position-absolute top-0 end-0 m-2" '
                 'onchange="checkSendButton()" id="selectCheckbox" '
@@ -97,5 +119,10 @@ async def posts_file(posts, chat_id, is_admin=False):
                 f'/api/thumb/{chat_id}?id={int(post["msg_id"])}">'
                 if is_admin else ''
             )
-        ).replace("&hash=", "&token="))
+        ).replace(
+            f'<span class="badge bg-warning">{escape(str(post["type"]))}</span>',
+            f'<span class="badge bg-warning">{escape(str(post["type"]))}</span>'
+            + ('<span class="badge premium-badge">Premium</span>' if access == "premium" else '')
+            + ('<span class="badge">Locked</span>' if not entitled else '')
+        ))
     return ''.join(cards)

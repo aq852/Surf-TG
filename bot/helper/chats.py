@@ -48,7 +48,12 @@ async def posts_chat(channels):
                 </a>
             </div>
 """
-    return ''.join(phtml.format(cid=str(channel["chat-id"]).replace("-100", ""), img=f"/api/thumb/{channel['chat-id']}", title=escape(str(channel["title"])), ctype=escape(str(channel['type']))) for channel in channels)
+    return ''.join(phtml.format(
+        cid=str(channel["chat-id"]).removeprefix("-100"),
+        img=f"/api/channel-cover/{channel['chat-id']}",
+        title=escape(str(channel["title"])),
+        ctype=escape(str(channel['type'])),
+    ) for channel in channels)
 
 
 async def post_playlist(playlists, is_admin=False):
@@ -74,11 +79,11 @@ async def post_playlist(playlists, is_admin=False):
     return ''.join(cards)
 
 
-async def posts_db_file(posts, is_admin=False):
+async def posts_db_file(posts, is_admin=False, user_tier="free"):
     phtml = """
     <div class="col">
         <div class="card text-white bg-primary mb-2">
-            <a href="/watch/{chat_id}?id={id}&hash={hash}"><img data-src="{img}" class="card-img-top lzy_img" alt="{title}"><div class="card-body"><h6 class="card-title">{title}</h6><span class="badge">{type}</span><span class="badge">{size}</span></div></a>
+            {open_tag}<img data-src="{img}" class="card-img-top lzy_img" alt="{title}"><div class="card-body"><h6 class="card-title">{title}</h6><span class="badge">{type}</span>{access_badge}<span class="badge">{size}</span></div>{close_tag}
             {admin_controls}
         </div>
     </div>
@@ -87,15 +92,23 @@ async def posts_db_file(posts, is_admin=False):
     for post in posts:
         chat_id = int(post["chat_id"])
         message_id = int(post["file_id"])
-        token = create_stream_token(Telegram.SECRET_KEY, chat_id, message_id, ttl=Telegram.STREAM_TOKEN_TTL)
+        access = post.get("access", "free")
+        entitled = is_admin or user_tier == "premium" or access != "premium"
+        token = create_stream_token(Telegram.SECRET_KEY, chat_id, message_id, ttl=Telegram.STREAM_TOKEN_TTL) if entitled else ""
+        public_chat_id = str(chat_id).removeprefix("-100")
         cards.append(phtml.format(
-            cid=post["_id"], chat_id=str(chat_id).replace("-100", ""), id=message_id,
+            cid=post["_id"], chat_id=public_chat_id, id=message_id,
             img=escape(str(post.get("thumbnail", "")), quote=True), title=escape(str(post["name"])),
             hash=token, size=escape(str(post['size'])), type=escape(str(post['file_type'])),
             ctype=escape(str(post["parent_folder"])),
+            open_tag=(f'<a href="/watch/{public_chat_id}?id={message_id}&token={token}">' if entitled else '<div class="locked-file">'),
+            close_tag='</a>' if entitled else '</div>',
+            access_badge=(
+                '<span class="badge premium-badge">Premium</span>' if access == "premium" else ''
+            ) + ('<span class="badge">Locked</span>' if not entitled else ''),
             admin_controls=(
                 f'<details style="padding:0 15px 15px"><summary>Edit</summary><form action="/edit_post" method="post"><input type="hidden" name="file_id" value="{post["_id"]}"><input type="hidden" name="file_folder_id" value="{escape(str(post["parent_folder"]), quote=True)}"><label>Name</label><input class="form-control" name="fileName" value="{escape(str(post["name"]), quote=True)}" required><label>Cover URL</label><input class="form-control" name="filethumbnail" value="{escape(str(post.get("thumbnail", "")), quote=True)}"><div class="actions" style="margin-top:10px"><button class="btn btn-primary btn-sm">Save</button><button type="button" class="btn btn-danger btn-sm" onclick="deleteRecord(\'{post["_id"]}\',\'{escape(str(post["parent_folder"]), quote=True)}\')">Delete</button></div></form></details>'
                 if is_admin else ''
             )
-        ).replace("&hash=", "&token="))
+        ))
     return ''.join(cards)

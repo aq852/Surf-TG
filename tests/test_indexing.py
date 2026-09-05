@@ -72,3 +72,15 @@ class IndexingTests(IsolatedAsyncioTestCase):
 
         save_batch.assert_awaited_once()
         self.assertEqual("1", save_batch.await_args.args[0][0]["msg_id"])
+
+    async def test_free_viewer_sees_premium_file_as_locked(self):
+        post = {"msg_id": "7", "title": "Premium movie", "size": "1GB", "type": "video/mp4", "access": "premium"}
+        html = await index.posts_file([post], -100123, user_tier="free")
+        self.assertIn("Locked", html)
+        self.assertNotIn('/watch/123?id=7', html)
+
+    async def test_admin_gets_index_management_controls(self):
+        post = {"msg_id": "7", "title": "Movie", "size": "1GB", "type": "video/mp4"}
+        html = await index.posts_file([post], -100123, is_admin=True, user_tier="premium")
+        self.assertIn("Delete index", html)
+        self.assertIn("Allow download button", html)

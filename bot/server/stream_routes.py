@@ -3,6 +3,9 @@ import logging
 import mimetypes
 import secrets
 import time
+import re
+import asyncio
+from html import escape
 from urllib.parse import quote
 from aiohttp import web
 from bot.helper.chats import get_chats, get_authorized_chat_ids, post_playlist, posts_chat, posts_db_file
@@ -17,7 +20,9 @@ from bot.helper.index import get_files, posts_file
 from bot.server.custom_dl import ByteStreamer
 from bot.server.render_template import render_page
 from bot.helper.ranges import RangeNotSatisfiable, parse_range, plan_chunks
-from bot.helper.security import StreamTokenError, verify_password, verify_stream_token
+from bot.helper.security import StreamTokenError, verify_stream_token
+from bot.helper.security import hash_password
+from bot.helper.accounts import account_tier, authenticate, is_admin
 from bot.helper.cache import rm_cache
 
 from bot.telegram import StreamBot
@@ -27,6 +32,30 @@ login_attempts = {}
 
 routes = web.RouteTableDef()
 db = Database()
+
+
+def _image_type(content):
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+async def _users_html():
+    rows = []
+    for user in await db.list_users():
+        username = escape(str(user.get("username", user["_id"])))
+        tier = escape(str(user.get("tier", "free")))
+        rows.append(
+            f'<div class="user-row"><span><strong>{username}</strong> <span class="badge">{tier}</span></span>'
+            '<form action="/admin/users/delete" method="post">'
+            f'<input type="hidden" name="username" value="{escape(str(user["_id"]), quote=True)}">'
+            '<button class="btn btn-danger btn-sm">Delete</button></form></div>'
+        )
+    return "".join(rows) or '<p class="muted">No individual accounts yet.</p>'
 
 
 def public_chat_id(value: str) -> int:
@@ -60,20 +89,12 @@ async def login_route(request):
     if len(attempts) >= 10:
         raise web.HTTPTooManyRequests(text="Too many login attempts. Try again later.")
 
-    def credential_matches(candidate_user, expected_user, password_hash, legacy_password):
-        if not secrets.compare_digest(candidate_user or "", expected_user or ""):
-            return False
-        if password_hash:
-            return verify_password(password or "", password_hash)
-        return secrets.compare_digest(password or "", legacy_password or "")
-
-    valid = credential_matches(username, Telegram.USERNAME, Telegram.PASSWORD_HASH, Telegram.PASSWORD)
-    valid = valid or credential_matches(
-        username, Telegram.ADMIN_USERNAME, Telegram.ADMIN_PASSWORD_HASH, Telegram.ADMIN_PASSWORD
-    )
-    if valid:
+    account = await authenticate(username, password)
+    if account:
         login_attempts.pop(remote, None)
-        session['user'] = username
+        session['user'] = account["username"]
+        session['role'] = account["role"]
+        session['tier'] = account["tier"]
         if 'redirect_url' not in session:
             session['redirect_url'] = '/'
         redirect_url = session['redirect_url']
@@ -89,15 +110,15 @@ async def login_route(request):
 @routes.post('/logout')
 async def logout_route(request):
     session = await get_session(request)
-    session.pop('user', None)
+    session.clear()
     raise web.HTTPFound('/login')
 
 
 @routes.post('/create')
 async def create_route(request):
     session = await get_session(request)
-    if (username := session.get('user')) != Telegram.ADMIN_USERNAME:
-        return web.json_response({'msg': 'Who the hell you are'})
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
     data = await request.post()
     folderName = data.get('folderName')
     thumbnail = data.get('thumbnail')
@@ -115,8 +136,8 @@ async def create_route(request):
 @routes.post('/delete')
 async def delete_route(request):
     session = await get_session(request)
-    if (username := session.get('user')) != Telegram.ADMIN_USERNAME:
-        return web.json_response({'msg': 'Who the hell you are'})
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
     data = await request.json()
     id = data.get('delete_id')
     parent = data.get('parent')
@@ -131,8 +152,8 @@ async def delete_route(request):
 @routes.post('/edit')
 async def editFolder_route(request):
     session = await get_session(request)
-    if (username := session.get('user')) != Telegram.ADMIN_USERNAME:
-        return web.json_response({'msg': 'Who the hell you are'})
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
     data = await request.post()
     folderName = data.get('folderName')
     thumbnail = data.get('thumbnail')
@@ -150,8 +171,8 @@ async def editFolder_route(request):
 @routes.post('/edit_post')
 async def editPost_route(request):
     session = await get_session(request)
-    if (username := session.get('user')) != Telegram.ADMIN_USERNAME:
-        return web.json_response({'msg': 'Who the hell you are'})
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
     data = await request.post()
     fileName = data.get('fileName')
     thumbnail = data.get('filethumbnail')
@@ -169,8 +190,8 @@ async def editPost_route(request):
 @routes.get('/searchDbFol')
 async def searchDbFolder_route(request):
     session = await get_session(request)
-    if (username := session.get('user')) != Telegram.ADMIN_USERNAME:
-        return web.json_response({'msg': 'Who the hell you are'})
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
     query = request.query.get('query', '')
     folder_names = await db.search_DbFolder(query)
     return web.json_response(folder_names)
@@ -179,7 +200,7 @@ async def searchDbFolder_route(request):
 @routes.post('/send')
 async def send_route(request):
     session = await get_session(request)
-    if session.get('user') != Telegram.ADMIN_USERNAME:
+    if not is_admin(session):
         raise web.HTTPForbidden(text="Administrator access required")
     data = await request.post()
     raw_chat_id = data.get('chatId', '')
@@ -213,6 +234,9 @@ async def send_route(request):
             'thumbnail': thumbnail,
             'type': 'file'
         })
+        source = await db.get_tgfile(chat_id, int(file_id))
+        formatted_entries[-1]["access"] = source.get("access", "free") if source else "free"
+        formatted_entries[-1]["downloadable"] = bool(source.get("downloadable", True)) if source else True
 
     json_data = json.dumps(formatted_entries)
     data = json.loads(json_data)
@@ -226,8 +250,8 @@ async def send_route(request):
 @routes.get('/reload')
 async def reload_route(request):
     session = await get_session(request)
-    if (username := session.get('user')) != Telegram.ADMIN_USERNAME:
-        return web.json_response({'msg': 'Who the hell you are'})
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
 
     chat_id = request.query.get('chatId', '')
     if chat_id == 'home':
@@ -241,15 +265,115 @@ async def reload_route(request):
 @routes.post('/config')
 async def editConfig_route(request):
     session = await get_session(request)
-    if (username := session.get('user')) != Telegram.ADMIN_USERNAME:
+    if not is_admin(session):
         raise web.HTTPForbidden(text='Administrator access required')
     data = await request.post()
     channel = data.get('channel')
     theme = data.get('theme')
+    if theme not in {"midnight", "cinema", "ocean", "light"}:
+        raise web.HTTPBadRequest(text="Invalid theme")
+    try:
+        [int(value.strip()) for value in str(channel or "").split(",") if value.strip()]
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text="Invalid channel ID list") from exc
     success = await db.update_config(theme=theme, auth_channel=channel)
     if not success:
         raise web.HTTPInternalServerError()
     raise web.HTTPFound('/')
+
+
+@routes.post('/admin/users')
+async def create_user_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    username = str(data.get("username", "")).strip()
+    password = str(data.get("password", ""))
+    tier = str(data.get("tier", "free"))
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,40}", username):
+        raise web.HTTPBadRequest(text="Username must be 3-40 letters, numbers, dots, dashes, or underscores")
+    if username.lower() in {Telegram.USERNAME.lower(), Telegram.ADMIN_USERNAME.lower()}:
+        raise web.HTTPBadRequest(text="That username is reserved")
+    if len(password) < 10:
+        raise web.HTTPBadRequest(text="Password must contain at least 10 characters")
+    if tier not in {"free", "premium"}:
+        raise web.HTTPBadRequest(text="Invalid account tier")
+    password_hash = await asyncio.to_thread(hash_password, password)
+    await db.create_user(username, password_hash, tier)
+    raise web.HTTPFound('/#accounts')
+
+
+@routes.post('/admin/users/delete')
+async def delete_user_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    await db.delete_user(str(data.get("username", "")))
+    raise web.HTTPFound('/#accounts')
+
+
+@routes.post('/channel/cover')
+async def channel_cover_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    chat_id = public_chat_id(str(data.get("chat_id", "")))
+    await require_authorized_chat(chat_id)
+    upload = data.get("cover")
+    if not upload or not getattr(upload, "file", None):
+        raise web.HTTPBadRequest(text="Choose an image")
+    content = upload.file.read(5 * 1024 * 1024 + 1)
+    if len(content) > 5 * 1024 * 1024:
+        raise web.HTTPRequestEntityTooLarge(max_size=5 * 1024 * 1024, actual_size=len(content))
+    content_type = _image_type(content)
+    if content_type is None:
+        raise web.HTTPBadRequest(text="Use a PNG, JPEG, or WebP image")
+    await db.save_channel_cover(chat_id, content, content_type)
+    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
+
+
+@routes.get('/api/channel-cover/{chat_id}')
+async def channel_cover_api(request):
+    session = await get_session(request)
+    if not session.get("user"):
+        raise web.HTTPUnauthorized(text="Login required")
+    raw = request.match_info["chat_id"]
+    chat_id = int(raw) if raw.startswith("-100") else public_chat_id(raw)
+    await require_authorized_chat(chat_id)
+    cover = await db.get_channel_cover(chat_id)
+    if not cover or not cover.get("cover"):
+        raise web.HTTPFound(f'/api/thumb/{chat_id}')
+    return web.Response(body=bytes(cover["cover"]), content_type=cover.get("cover_type", "image/jpeg"), headers={"Cache-Control": "private, max-age=300"})
+
+
+@routes.post('/indexed/delete')
+async def indexed_delete_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    chat_id = public_chat_id(str(data.get("chat_id", "")))
+    await require_authorized_chat(chat_id)
+    await db.delete_tgfile(chat_id, int(data.get("message_id", "0")))
+    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
+
+
+@routes.post('/indexed/settings')
+async def indexed_settings_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    chat_id = public_chat_id(str(data.get("chat_id", "")))
+    await require_authorized_chat(chat_id)
+    access = str(data.get("access", "free"))
+    if access not in {"free", "premium"}:
+        raise web.HTTPBadRequest(text="Invalid access level")
+    await db.update_tgfile_settings(chat_id, int(data.get("message_id", "0")), access, data.get("downloadable") == "yes")
+    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
 
 
 
@@ -260,10 +384,12 @@ async def home_route(request):
         try:
             channels = await get_chats()
             playlists = await db.get_Dbfolder()
-            is_admin = username == Telegram.ADMIN_USERNAME
+            admin = is_admin(session)
+            role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
             phtml = await posts_chat(channels)
-            dhtml = await post_playlist(playlists, is_admin=is_admin)
-            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, is_admin=is_admin), content_type='text/html')
+            dhtml = await post_playlist(playlists, is_admin=admin)
+            accounts = await _users_html() if admin else ""
+            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, accounts=accounts, is_admin=admin, account_role=role_label), content_type='text/html')
         except Exception as e:
             logging.critical(e.with_traceback(None))
             raise web.HTTPInternalServerError(text=str(e)) from e
@@ -282,10 +408,11 @@ async def playlist_route(request):
             playlists = await db.get_Dbfolder(parent_id, page=page)
             files = await db.get_dbFiles(parent_id, page=page)
             text = await db.get_info(parent_id)
-            is_admin = username == Telegram.ADMIN_USERNAME
-            dhtml = await post_playlist(playlists, is_admin=is_admin)
-            dphtml = await posts_db_file(files, is_admin=is_admin)
-            return web.Response(text=await render_page(parent_id, None, route='playlist', playlist=dhtml, database=dphtml, msg=text, is_admin=is_admin), content_type='text/html')
+            admin = is_admin(session)
+            role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
+            dhtml = await post_playlist(playlists, is_admin=admin)
+            dphtml = await posts_db_file(files, is_admin=admin, user_tier=account_tier(session))
+            return web.Response(text=await render_page(parent_id, None, route='playlist', playlist=dhtml, database=dphtml, msg=text, is_admin=admin, account_role=role_label), content_type='text/html')
         except Exception as e:
             logging.critical(e.with_traceback(None))
             raise web.HTTPInternalServerError(text=str(e)) from e
@@ -301,13 +428,14 @@ async def dbsearch_route(request):
         parent = request.match_info['parent']
         page = request.query.get('page', '1')
         query = request.query.get('q', '')
-        is_admin = username == Telegram.ADMIN_USERNAME
+        admin = is_admin(session)
+        role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
         try:
             files = await db.search_dbfiles(id=parent, page=page, query=query)
-            dphtml = await posts_db_file(files, is_admin=is_admin)
+            dphtml = await posts_db_file(files, is_admin=admin, user_tier=account_tier(session))
             name = await db.get_info(parent)
             text = f"{name} - {query}"
-            return web.Response(text=await render_page(parent, None, route='playlist', database=dphtml, msg=text, is_admin=is_admin), content_type='text/html')
+            return web.Response(text=await render_page(parent, None, route='playlist', database=dphtml, msg=text, is_admin=admin, account_role=role_label), content_type='text/html')
         except Exception as e:
             logging.critical(e.with_traceback(None))
             raise web.HTTPInternalServerError(text=str(e)) from e
@@ -323,12 +451,13 @@ async def channel_route(request):
         chat_id = public_chat_id(request.match_info['chat_id'])
         await require_authorized_chat(chat_id)
         page = request.query.get('page', '1')
-        is_admin = username == Telegram.ADMIN_USERNAME
+        admin = is_admin(session)
+        role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
         try:
             posts = await get_files(chat_id, page=page)
-            phtml = await posts_file(posts, chat_id, is_admin=is_admin)
+            phtml = await posts_file(posts, chat_id, is_admin=admin, user_tier=account_tier(session))
             chat = await StreamBot.get_chat(int(chat_id))
-            return web.Response(text=await render_page(None, None, route='index', html=phtml, msg=chat.title, chat_id=str(chat_id).removeprefix("-100"), is_admin=is_admin), content_type='text/html')
+            return web.Response(text=await render_page(None, None, route='index', html=phtml, msg=chat.title, chat_id=str(chat_id).removeprefix("-100"), is_admin=admin, account_role=role_label), content_type='text/html')
         except Exception as e:
             logging.critical(e.with_traceback(None))
             raise web.HTTPInternalServerError(text=str(e)) from e
@@ -345,13 +474,14 @@ async def search_route(request):
         await require_authorized_chat(chat_id)
         page = request.query.get('page', '1')
         query = request.query.get('q', '')
-        is_admin = username == Telegram.ADMIN_USERNAME
+        admin = is_admin(session)
+        role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
         try:
             posts = await search(chat_id, page=page, query=query)
-            phtml = await posts_file(posts, chat_id, is_admin=is_admin)
+            phtml = await posts_file(posts, chat_id, is_admin=admin, user_tier=account_tier(session))
             chat = await StreamBot.get_chat(int(chat_id))
             text = f"{chat.title} - {query}"
-            return web.Response(text=await render_page(None, None, route='index', html=phtml, msg=text, chat_id=str(chat_id).removeprefix("-100"), is_admin=is_admin), content_type='text/html')
+            return web.Response(text=await render_page(None, None, route='index', html=phtml, msg=text, chat_id=str(chat_id).removeprefix("-100"), is_admin=admin, account_role=role_label), content_type='text/html')
         except Exception as e:
             logging.critical(e.with_traceback(None))
             raise web.HTTPInternalServerError(text=str(e)) from e
@@ -389,11 +519,17 @@ async def stream_handler_watch(request: web.Request):
             claim = verify_stream_token(Telegram.SECRET_KEY, stream_token)
             if claim.chat_id != int(chat_id) or claim.message_id != int(message_id):
                 raise StreamTokenError("token does not match media")
-            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id), content_type='text/html')
+            record = await db.get_tgfile(chat_id, int(message_id))
+            if record and record.get("access", "free") == "premium" and account_tier(session) != "premium":
+                raise web.HTTPForbidden(text="Premium membership required")
+            downloadable = bool(record.get("downloadable", True)) if record else True
+            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable), content_type='text/html')
         except StreamTokenError as e:
             raise web.HTTPForbidden(text=str(e)) from e
         except FIleNotFound as e:
             raise web.HTTPNotFound(text=e.message) from e
+        except web.HTTPException:
+            raise
         except Exception as e:
             logging.critical(e.with_traceback(None))
             raise web.HTTPInternalServerError(text=str(e)) from e
@@ -414,6 +550,8 @@ async def stream_handler(request: web.Request):
         raise web.HTTPForbidden(text=str(e)) from e
     except FIleNotFound as e:
         raise web.HTTPNotFound(text=e.message) from e
+    except web.HTTPException:
+        raise
     except Exception as e:
         logging.critical(e.with_traceback(None))
         raise web.HTTPInternalServerError(text=str(e))
@@ -426,6 +564,9 @@ async def media_streamer(request: web.Request, chat_id: int, id: int, stream_tok
     claim = verify_stream_token(Telegram.SECRET_KEY, stream_token)
     if claim.chat_id != chat_id or claim.message_id != id:
         raise StreamTokenError("token does not match media")
+    wants_download = request.query.get("download") == "1"
+    if wants_download and claim.scope != "download":
+        raise web.HTTPForbidden(text="This link is not authorized for download")
     range_header = request.headers.get("Range")
 
     index = min(work_loads, key=work_loads.get)
@@ -462,7 +603,7 @@ async def media_streamer(request: web.Request, chat_id: int, id: int, stream_tok
 
     mime_type = file_id.mime_type
     file_name = file_id.file_name
-    disposition = "attachment"
+    disposition = "attachment" if wants_download else "inline"
 
     if mime_type:
         if not file_name:

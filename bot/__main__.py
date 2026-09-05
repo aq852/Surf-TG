@@ -33,7 +33,7 @@ async def start_services():
         raise RuntimeError("Telegram client was initialized on a different event loop")
     runner = None
     try:
-        LOGGER.info("Initializing Surf-TG v-%s", __version__)
+        LOGGER.info("Initializing %s v-%s", Telegram.SITE_NAME, __version__)
 
         await StreamBot.start()
         StreamBot.username = StreamBot.me.username
@@ -49,12 +49,12 @@ async def start_services():
         LOGGER.info("Initializing additional streaming clients")
         await initialize_clients()
 
-        LOGGER.info("Starting Surf web server on port %s", Telegram.PORT)
+        LOGGER.info("Starting %s web server on port %s", Telegram.SITE_NAME, Telegram.PORT)
         runner = web.AppRunner(await web_server())
         await runner.setup()
         await web.TCPSite(runner, "0.0.0.0", Telegram.PORT).start()
 
-        LOGGER.info("Surf-TG is ready at %s", Telegram.BASE_URL or f"http://127.0.0.1:{Telegram.PORT}")
+        LOGGER.info("%s is ready at %s", Telegram.SITE_NAME, Telegram.BASE_URL or f"http://127.0.0.1:{Telegram.PORT}")
         await idle()
     finally:
         if runner is not None:
@@ -66,7 +66,7 @@ def main():
     try:
         loop.run_until_complete(start_services())
     except KeyboardInterrupt:
-        LOGGER.info("Surf-TG stopped")
+        LOGGER.info("%s stopped", Telegram.SITE_NAME)
     except Exception:
         LOGGER.error(format_exc())
         raise SystemExit(1)

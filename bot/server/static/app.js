@@ -1,4 +1,9 @@
 document.addEventListener("DOMContentLoaded",()=>{
+  const body=document.body, saved=localStorage.getItem('akmv-theme');
+  if(saved&&['midnight','cinema','ocean','light'].includes(saved))body.dataset.theme=saved;
+  document.querySelectorAll('[data-theme-toggle]').forEach(button=>button.addEventListener('click',()=>{const next=body.dataset.theme==='light'?(body.dataset.baseTheme||'midnight'):'light';body.dataset.theme=next;localStorage.setItem('akmv-theme',next);button.textContent=next==='light'?'☀':'☾'}));
+  document.querySelectorAll('[data-back]').forEach(button=>button.addEventListener('click',()=>history.length>1?history.back():location.assign('/')));
+  const themeSelect=document.getElementById('siteTheme');if(themeSelect)themeSelect.value=body.dataset.baseTheme||'midnight';
   document.querySelectorAll("img[data-src]").forEach(img=>{img.src=img.dataset.src;img.removeAttribute("data-src")});
   const url=new URL(location.href), page=Number(url.searchParams.get("page")||1);
   const setPage=(id,next)=>{const a=document.getElementById(id);if(!a)return;if(next<1){a.classList.add("disabled");return}const target=new URL(url);target.searchParams.set("page",next);a.href=target};

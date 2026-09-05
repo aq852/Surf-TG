@@ -51,6 +51,7 @@ class StreamClaim:
     chat_id: int
     message_id: int
     expires_at: int
+    scope: str = "stream"
 
 
 class StreamTokenError(ValueError):
@@ -58,13 +59,15 @@ class StreamTokenError(ValueError):
 
 
 def create_stream_token(
-    secret: str, chat_id: int, message_id: int, *, ttl: int = 6 * 60 * 60, now: int | None = None
+    secret: str, chat_id: int, message_id: int, *, ttl: int = 6 * 60 * 60,
+    now: int | None = None, scope: str = "stream"
 ) -> str:
     payload = {
         "c": int(chat_id),
         "m": int(message_id),
         "e": int(now if now is not None else time.time()) + ttl,
-        "v": 1,
+        "s": scope,
+        "v": 2,
     }
     body = _encode_b64(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
     signature = _encode_b64(hmac.new(secret.encode(), body.encode(), hashlib.sha256).digest())
@@ -78,9 +81,12 @@ def verify_stream_token(secret: str, token: str, *, now: int | None = None) -> S
         if not hmac.compare_digest(supplied_signature, expected):
             raise StreamTokenError("invalid signature")
         payload = json.loads(_decode_b64(body))
-        if payload.get("v") != 1:
+        if payload.get("v") not in {1, 2}:
             raise StreamTokenError("unsupported token")
-        claim = StreamClaim(int(payload["c"]), int(payload["m"]), int(payload["e"]))
+        claim = StreamClaim(
+            int(payload["c"]), int(payload["m"]), int(payload["e"]),
+            str(payload.get("s", "stream")),
+        )
     except StreamTokenError:
         raise
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:

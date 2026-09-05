@@ -1,5 +1,6 @@
 from pymongo import DESCENDING, MongoClient, UpdateOne
 from bson import ObjectId
+from datetime import datetime, timezone
 from bot.config import Telegram
 import re
 import asyncio
@@ -32,6 +33,14 @@ class Database:
     @property
     def files(self):
         return self.db["files"]
+
+    @property
+    def channel_settings(self):
+        return self.db["channel_settings"]
+
+    @property
+    def users(self):
+        return self.db["users"]
 
     @classmethod
     def close_all(cls):
@@ -117,7 +126,7 @@ class Database:
         else:
             result = await asyncio.to_thread(self.config.update_one, {"_id": bot_id}, {
                 "$set": {"theme": theme, "auth_channel": auth_channel}})
-            return result.modified_count > 0
+            return result.acknowledged
 
     async def get_variable(self, key):
         bot_id = Telegram.BOT_TOKEN.split(":", 1)[0]
@@ -132,13 +141,56 @@ class Database:
         return await asyncio.to_thread(lambda: list(self.files.find(query).sort(
             'msg_id', DESCENDING).skip(offset).limit(per_page)))
 
+    async def get_tgfile(self, chat_id, message_id):
+        return await asyncio.to_thread(
+            self.files.find_one,
+            {
+                "chat_id": {"$in": [str(chat_id), int(chat_id)]},
+                "msg_id": {"$in": [str(message_id), int(message_id)]},
+            },
+        )
+
+    async def delete_tgfile(self, chat_id, message_id):
+        result = await asyncio.to_thread(
+            self.files.delete_many,
+            {
+                "chat_id": {"$in": [str(chat_id), int(chat_id)]},
+                "msg_id": {"$in": [str(message_id), int(message_id)]},
+            },
+        )
+        return result.deleted_count
+
+    async def update_tgfile_settings(self, chat_id, message_id, access, downloadable):
+        result = await asyncio.to_thread(
+            self.files.update_many,
+            {
+                "chat_id": {"$in": [str(chat_id), int(chat_id)]},
+                "msg_id": {"$in": [str(message_id), int(message_id)]},
+            },
+            {"$set": {"access": access, "downloadable": bool(downloadable)}},
+        )
+        await asyncio.to_thread(
+            self.collection.update_many,
+            {
+                "chat_id": {"$in": [str(chat_id), int(chat_id)]},
+                "file_id": {"$in": [str(message_id), int(message_id)]},
+                "type": "file",
+            },
+            {"$set": {"access": access, "downloadable": bool(downloadable)}},
+        )
+        return result.matched_count
+
     async def add_tgfiles(self, chat_id, file_id, hash, name, size, file_type):
-        file = {"chat_id": chat_id, "msg_id": file_id,
+        numeric_file_id = int(file_id)
+        file = {"chat_id": str(chat_id), "msg_id": numeric_file_id,
                 "hash": hash, "title": name, "size": size, "type": file_type}
         result = await asyncio.to_thread(
             self.files.update_one,
-            {"chat_id": chat_id, "msg_id": file_id},
-            {"$setOnInsert": file},
+            {
+                "chat_id": {"$in": [str(chat_id), int(chat_id)]},
+                "msg_id": {"$in": [str(file_id), numeric_file_id]},
+            },
+            {"$set": file, "$setOnInsert": {"access": "free", "downloadable": True}},
             upsert=True,
         )
         return result.upserted_id is not None
@@ -156,8 +208,14 @@ class Database:
     async def add_btgfiles(self, data):
         operations = [
             UpdateOne(
-                {"chat_id": str(file["chat_id"]), "msg_id": str(file["msg_id"])},
-                {"$setOnInsert": {**file, "chat_id": str(file["chat_id"]), "msg_id": str(file["msg_id"])}},
+                {
+                    "chat_id": {"$in": [str(file["chat_id"]), int(file["chat_id"])]},
+                    "msg_id": {"$in": [str(file["msg_id"]), int(file["msg_id"])]},
+                },
+                {
+                    "$set": {**file, "chat_id": str(file["chat_id"]), "msg_id": int(file["msg_id"])},
+                    "$setOnInsert": {"access": "free", "downloadable": True},
+                },
                 upsert=True,
             )
             for file in data
@@ -166,3 +224,48 @@ class Database:
             return 0
         result = await asyncio.to_thread(self.files.bulk_write, operations, ordered=False)
         return result.upserted_count
+
+    async def save_channel_cover(self, chat_id, content, content_type):
+        await asyncio.to_thread(
+            self.channel_settings.update_one,
+            {"_id": str(chat_id)},
+            {"$set": {
+                "cover": content,
+                "cover_type": content_type,
+                "updated_at": datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+
+    async def get_channel_cover(self, chat_id):
+        return await asyncio.to_thread(
+            self.channel_settings.find_one,
+            {"_id": str(chat_id)},
+            {"cover": 1, "cover_type": 1},
+        )
+
+    async def create_user(self, username, password_hash, tier="free"):
+        await asyncio.to_thread(
+            self.users.update_one,
+            {"_id": username.lower()},
+            {"$set": {
+                "username": username,
+                "password_hash": password_hash,
+                "tier": tier,
+                "active": True,
+                "updated_at": datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+
+    async def get_user(self, username):
+        if not username:
+            return None
+        return await asyncio.to_thread(self.users.find_one, {"_id": username.lower()})
+
+    async def list_users(self):
+        return await asyncio.to_thread(lambda: list(self.users.find({}, {"password_hash": 0}).sort("username", 1)))
+
+    async def delete_user(self, username):
+        result = await asyncio.to_thread(self.users.delete_one, {"_id": username.lower()})
+        return result.deleted_count

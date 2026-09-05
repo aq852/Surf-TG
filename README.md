@@ -1,10 +1,8 @@
-# Surf-TG 2.0
+# AkMovieVerse 3.0
 
-A small, self-hosted gateway for browsing and streaming media from **Telegram channels you are authorized to access**.
+AkMovieVerse is a self-hosted gateway for organizing and streaming media from **Telegram channels you are authorized to access**. It is the branded, security-focused evolution of Surf-TG maintained by [aq852](https://github.com/aq852).
 
-![Surf-TG 2.0 library](docs/surf-tg-2-home.jpg)
-
-Surf-TG keeps the original project's direct, uncomplicated workflow: sign in, open a channel, choose a file, and play it. Version 2 rebuilds the unsafe parts, fixes byte-range edge cases, and ships a responsive interface without remotely hosted JavaScript.
+It keeps the original project's direct workflow—sign in, open a channel, choose a file, and play it—while adding a modern media-library experience and stronger access controls.
 
 ## Highlights
 
@@ -18,6 +16,13 @@ Surf-TG keeps the original project's direct, uncomplicated workflow: sign in, op
 - Authorized-channel enforcement for browsing and thumbnails
 - Optional allowlist for Telegram `/start file_...` shortcuts
 - Responsive, self-contained UI
+- AkMovieVerse branding and original local logo
+- Admin-uploaded channel profile pictures
+- Admin controls for deleting indexed rows and marking files premium/download-disabled
+- Individual free or premium viewer accounts stored as password hashes
+- Midnight, cinema, ocean, and light themes with a personal night-mode toggle
+- Conservative filename cleanup for links, handles, and channel promotions
+- Optional, clearly labelled ad placement configured by environment variables
 - Docker deployment and automated regression tests
 
 ## Security changes from Surf-TG 1.x
@@ -77,6 +82,12 @@ Important settings:
 | `COOKIE_SECURE` | Keep `true` behind HTTPS; use `false` only for local HTTP development |
 | `ALLOWED_TELEGRAM_USERS` | Telegram numeric user IDs allowed to request files through bot deep links |
 | `MULTI_TOKEN1...50` | Optional extra bot tokens used for streaming capacity |
+| `SITE_NAME` | Display name; defaults to `AkMovieVerse` |
+| `SITE_CREDIT` | Footer credit; defaults to `Built by aq852` |
+| `FILENAME_CLEANUP_REGEX` | Optional additional case-insensitive regex removed from indexed titles |
+| `AD_TITLE` | Advertisement label/text; leave empty to disable ad slots |
+| `AD_URL` | Required HTTP(S) destination when an ad is enabled |
+| `AD_IMAGE_URL` | Optional HTTP(S) ad image |
 
 ## Run with Docker
 
@@ -106,6 +117,18 @@ On Windows, activate with `.venv\Scripts\activate`.
 3. New document and video messages are indexed automatically.
 4. Add a `SESSION_STRING` if you want the UI to browse Telegram history directly instead of relying only on MongoDB's index.
 
+Re-run `/index` after changing filename-cleanup rules. Index batches are committed as they are scanned, so an interruption no longer discards completed progress.
+
+## Accounts and premium access
+
+Sign in as the administrator and open **Viewer and premium accounts** to create a unique login for each member. On a channel page, open a file card's **Manage** panel to mark it free or premium, hide its download button, or remove its indexed row.
+
+“Watch only” is a policy control, not DRM: any browser that can decode a video receives its bytes and a determined viewer can capture them. AkMovieVerse hides and cryptographically scopes the explicit download action, but it does not claim to make streamed media impossible to copy. Likewise, individual accounts improve accountability, but preventing credential sharing completely requires server-side device/session limits or a paid identity provider.
+
+## Channel art, themes, and ads
+
+Administrators can upload a PNG, JPEG, or WebP channel picture (maximum 5 MB) from the channel page. The global theme is selected in Library settings; each browser can temporarily toggle light/night mode. Ad slots render only when both `AD_TITLE` and a valid `AD_URL` are configured. AkMovieVerse does not inject an ad network or tracking script.
+
 ## Tests
 
 ```bash
@@ -133,6 +156,6 @@ This is intentionally a focused file gateway. Rich movie/series metadata and Str
 
 Old `?hash=abcdef` stream and watch links are intentionally invalid. Open the file from the upgraded library to obtain a new signed link.
 
-## License and attribution
+## License, attribution, and credits
 
-GPL-3.0. This project is derived from [weebzone/Surf-TG](https://github.com/weebzone/Surf-TG); the original copyright and license are preserved in `LICENSE`.
+GPL-3.0. This project is derived from [weebzone/Surf-TG](https://github.com/weebzone/Surf-TG); the original copyright and license are preserved in `LICENSE`. The AkMovieVerse 2.0/3.0 redesign, security hardening, indexing repairs, access controls, account system, and interface work are maintained by [aq852](https://github.com/aq852) with Codex-assisted implementation. See [the upgrade record](docs/AKMOVIEVERSE_CHANGES.md).

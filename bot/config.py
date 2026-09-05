@@ -16,7 +16,7 @@ class Telegram:
     DATABASE_URL = getenv("DATABASE_URL", "")
     AUTH_CHANNEL = [channel.strip() for channel in getenv("AUTH_CHANNEL", "").split(",") if channel.strip()]
     ALLOWED_TELEGRAM_USERS = {int(user) for user in getenv("ALLOWED_TELEGRAM_USERS", "").split(",") if user.strip()}
-    THEME = getenv("THEME", "quartz").lower()
+    THEME = getenv("THEME", "midnight").lower()
     USERNAME = getenv("VIEWER_USERNAME", "viewer")
     PASSWORD = getenv("VIEWER_PASSWORD", "")
     ADMIN_USERNAME = getenv("ADMIN_USERNAME", "surfTG")
@@ -30,6 +30,12 @@ class Telegram:
     WORKERS = int(getenv('WORKERS', '10'))
     MULTI_CLIENT = getenv('MULTI_CLIENT', 'False').lower() in {"1", "true", "yes", "on"}
     HIDE_CHANNEL = getenv('HIDE_CHANNEL', 'False').lower() in {"1", "true", "yes", "on"}
+    SITE_NAME = getenv("SITE_NAME", "AkMovieVerse").strip() or "AkMovieVerse"
+    SITE_CREDIT = getenv("SITE_CREDIT", "Built by aq852").strip()
+    AD_TITLE = getenv("AD_TITLE", "").strip()
+    AD_URL = getenv("AD_URL", "").strip()
+    AD_IMAGE_URL = getenv("AD_IMAGE_URL", "").strip()
+    FILENAME_CLEANUP_REGEX = getenv("FILENAME_CLEANUP_REGEX", "").strip()
 
     @classmethod
     def validate(cls):
@@ -52,3 +58,9 @@ class Telegram:
                     "plain-password fallback, or generate a real hash with: "
                     "python -m bot.helper.security"
                 )
+        if cls.FILENAME_CLEANUP_REGEX:
+            import re
+            try:
+                re.compile(cls.FILENAME_CLEANUP_REGEX)
+            except re.error as exc:
+                raise RuntimeError(f"Invalid FILENAME_CLEANUP_REGEX: {exc}") from exc
