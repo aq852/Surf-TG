@@ -2,8 +2,9 @@ from aiohttp import web
 from aiohttp.web import Application
 import base64
 import hashlib
+import time
 from cryptography.fernet import Fernet
-from aiohttp_session import setup
+from aiohttp_session import get_session, setup
 from aiohttp_session.cookie_storage import EncryptedCookieStorage
 
 from bot.server.stream_routes import routes
@@ -33,6 +34,18 @@ async def browser_security(request, handler):
     )
     return response
 
+
+@web.middleware
+async def account_expiry(request, handler):
+    session = await get_session(request)
+    expires_at = session.get("expires_at")
+    if session.get("user") and expires_at is not None and float(expires_at) <= time.time():
+        session.clear()
+        if request.method == "GET" and request.path != "/login":
+            raise web.HTTPFound("/login")
+        raise web.HTTPUnauthorized(text="Account expired")
+    return await handler(request)
+
 async def web_server():
     web_app = Application(client_max_size=30000000, middlewares=[browser_security])
     key = base64.urlsafe_b64encode(hashlib.sha256(Telegram.SECRET_KEY.encode()).digest())
@@ -44,6 +57,7 @@ async def web_server():
         httponly=True,
         samesite="Strict",
     ))
+    web_app.middlewares.append(account_expiry)
     web_app.router.add_static('/static/', path=Path('bot/server/static'), name='static')
     web_app.add_routes(routes)
     web_app.on_cleanup.append(lambda app: _close_database())

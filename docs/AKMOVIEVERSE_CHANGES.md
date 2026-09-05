@@ -16,6 +16,8 @@ The `aq852/Surf-TG` evolution introduced:
 - filename promotion/link cleanup;
 - indexed-file deletion, free/premium classification, and download-action controls;
 - database-backed individual viewer accounts with PBKDF2 password hashes;
+- account password reset, tier/status editing, and automatic UTC-date expiry;
+- display-only indexed filename renaming and channel-wide index cleanup;
 - midnight, cinema, ocean, and light themes;
 - optional ad placements without bundled tracking code;
 - regression tests covering security, ranges, UI, indexing, and cleanup.

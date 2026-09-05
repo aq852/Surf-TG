@@ -5,6 +5,7 @@ import secrets
 import time
 import re
 import asyncio
+from datetime import datetime, time as datetime_time, timezone
 from html import escape
 from urllib.parse import quote
 from aiohttp import web
@@ -48,14 +49,45 @@ async def _users_html():
     rows = []
     for user in await db.list_users():
         username = escape(str(user.get("username", user["_id"])))
-        tier = escape(str(user.get("tier", "free")))
+        user_id = escape(str(user["_id"]), quote=True)
+        tier = str(user.get("tier", "free"))
+        premium_selected = " selected" if tier == "premium" else ""
+        active = bool(user.get("active", True))
+        active_checked = " checked" if active else ""
+        expires_at = user.get("expires_at")
+        expiry_value = expires_at.strftime("%Y-%m-%d") if expires_at else ""
+        expired = False
+        if expires_at:
+            normalized_expiry = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
+            expired = normalized_expiry <= datetime.now(timezone.utc)
+        status = "Expired" if expired else ("Active" if active else "Disabled")
         rows.append(
-            f'<div class="user-row"><span><strong>{username}</strong> <span class="badge">{tier}</span></span>'
-            '<form action="/admin/users/delete" method="post">'
-            f'<input type="hidden" name="username" value="{escape(str(user["_id"]), quote=True)}">'
-            '<button class="btn btn-danger btn-sm">Delete</button></form></div>'
+            '<details class="user-editor"><summary>'
+            f'<strong>{username}</strong> <span class="badge">{escape(tier)}</span> <span class="badge">{status}</span>'
+            '</summary><form action="/admin/users/update" method="post">'
+            f'<input type="hidden" name="username" value="{user_id}">'
+            '<div class="form-grid"><div><label>Tier</label><select class="form-select" name="tier">'
+            f'<option value="free">Free viewer</option><option value="premium"{premium_selected}>Premium viewer</option></select></div>'
+            f'<div><label>Expires on (optional)</label><input class="form-control" type="date" name="expires_at" value="{expiry_value}"></div>'
+            '<div><label>New password (optional)</label><input class="form-control" type="password" name="password" minlength="10" placeholder="Leave blank to keep current"></div></div>'
+            f'<label class="check-label"><input type="checkbox" name="active" value="yes"{active_checked}> Account active</label>'
+            '<button class="btn btn-primary btn-sm">Save account</button></form>'
+            '<form action="/admin/users/delete" method="post" onsubmit="return confirm(\'Delete this account?\')">'
+            f'<input type="hidden" name="username" value="{user_id}">'
+            '<button class="btn btn-danger btn-sm">Delete account</button></form></details>'
         )
     return "".join(rows) or '<p class="muted">No individual accounts yet.</p>'
+
+
+def _parse_expiry(value):
+    value = str(value or "").strip()
+    if not value:
+        return None
+    try:
+        selected = datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text="Invalid expiry date") from exc
+    return datetime.combine(selected, datetime_time.max, tzinfo=timezone.utc)
 
 
 def public_chat_id(value: str) -> int:
@@ -95,6 +127,10 @@ async def login_route(request):
         session['user'] = account["username"]
         session['role'] = account["role"]
         session['tier'] = account["tier"]
+        if account.get("expires_at") is not None:
+            session['expires_at'] = account["expires_at"]
+        else:
+            session.pop('expires_at', None)
         if 'redirect_url' not in session:
             session['redirect_url'] = '/'
         redirect_url = session['redirect_url']
@@ -299,8 +335,35 @@ async def create_user_route(request):
         raise web.HTTPBadRequest(text="Password must contain at least 10 characters")
     if tier not in {"free", "premium"}:
         raise web.HTTPBadRequest(text="Invalid account tier")
+    expires_at = _parse_expiry(data.get("expires_at"))
     password_hash = await asyncio.to_thread(hash_password, password)
-    await db.create_user(username, password_hash, tier)
+    await db.create_user(username, password_hash, tier, expires_at)
+    raise web.HTTPFound('/#accounts')
+
+
+@routes.post('/admin/users/update')
+async def update_user_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    username = str(data.get("username", "")).strip()
+    tier = str(data.get("tier", "free"))
+    password = str(data.get("password", ""))
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,40}", username):
+        raise web.HTTPBadRequest(text="Invalid username")
+    if tier not in {"free", "premium"}:
+        raise web.HTTPBadRequest(text="Invalid account tier")
+    if password and len(password) < 10:
+        raise web.HTTPBadRequest(text="Password must contain at least 10 characters")
+    password_hash = await asyncio.to_thread(hash_password, password) if password else None
+    await db.update_user(
+        username,
+        tier,
+        data.get("active") == "yes",
+        _parse_expiry(data.get("expires_at")),
+        password_hash,
+    )
     raise web.HTTPFound('/#accounts')
 
 
@@ -358,6 +421,34 @@ async def indexed_delete_route(request):
     chat_id = public_chat_id(str(data.get("chat_id", "")))
     await require_authorized_chat(chat_id)
     await db.delete_tgfile(chat_id, int(data.get("message_id", "0")))
+    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
+
+
+@routes.post('/indexed/delete-all')
+async def indexed_delete_all_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    chat_id = public_chat_id(str(data.get("chat_id", "")))
+    await require_authorized_chat(chat_id)
+    await db.delete_channel_tgfiles(chat_id)
+    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
+
+
+@routes.post('/indexed/rename')
+async def indexed_rename_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    chat_id = public_chat_id(str(data.get("chat_id", "")))
+    await require_authorized_chat(chat_id)
+    title = re.sub(r"[\x00-\x1f\x7f]+", " ", str(data.get("title", "")))
+    title = re.sub(r"\s+", " ", title).strip()
+    if not title or len(title) > 500:
+        raise web.HTTPBadRequest(text="Display name must contain 1-500 characters")
+    await db.update_tgfile_title(chat_id, int(data.get("message_id", "0")), title)
     raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
 
 
@@ -523,7 +614,8 @@ async def stream_handler_watch(request: web.Request):
             if record and record.get("access", "free") == "premium" and account_tier(session) != "premium":
                 raise web.HTTPForbidden(text="Premium membership required")
             downloadable = bool(record.get("downloadable", True)) if record else True
-            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable), content_type='text/html')
+            display_title = (record.get("display_title") or record.get("title")) if record else ""
+            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable, display_title=display_title), content_type='text/html')
         except StreamTokenError as e:
             raise web.HTTPForbidden(text=str(e)) from e
         except FIleNotFound as e:

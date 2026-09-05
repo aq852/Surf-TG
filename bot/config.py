@@ -31,7 +31,7 @@ class Telegram:
     MULTI_CLIENT = getenv('MULTI_CLIENT', 'False').lower() in {"1", "true", "yes", "on"}
     HIDE_CHANNEL = getenv('HIDE_CHANNEL', 'False').lower() in {"1", "true", "yes", "on"}
     SITE_NAME = getenv("SITE_NAME", "AkMovieVerse").strip() or "AkMovieVerse"
-    SITE_CREDIT = getenv("SITE_CREDIT", "Built by aq852").strip()
+    SITE_CREDIT = getenv("SITE_CREDIT", "By AkMovieVerse").strip()
     AD_TITLE = getenv("AD_TITLE", "").strip()
     AD_URL = getenv("AD_URL", "").strip()
     AD_IMAGE_URL = getenv("AD_IMAGE_URL", "").strip()

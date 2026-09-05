@@ -2,6 +2,7 @@
 
 import secrets
 import asyncio
+from datetime import datetime, timezone
 
 from bot import LOGGER
 from bot.config import Telegram
@@ -36,6 +37,19 @@ async def authenticate(username: str, password: str):
     except Exception as exc:
         LOGGER.warning("Database account lookup failed: %s", exc)
         return None
-    if not user or not user.get("active", True) or not await asyncio.to_thread(verify_password, password or "", user.get("password_hash", "")):
+    if not user or not user.get("active", True):
         return None
-    return {"username": user["username"], "role": "viewer", "tier": user.get("tier", "free")}
+    expires_at = user.get("expires_at")
+    if expires_at:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            return None
+    if not await asyncio.to_thread(verify_password, password or "", user.get("password_hash", "")):
+        return None
+    return {
+        "username": user["username"],
+        "role": "viewer",
+        "tier": user.get("tier", "free"),
+        "expires_at": expires_at.timestamp() if expires_at else None,
+    }

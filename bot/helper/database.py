@@ -160,6 +160,33 @@ class Database:
         )
         return result.deleted_count
 
+    async def delete_channel_tgfiles(self, chat_id):
+        result = await asyncio.to_thread(
+            self.files.delete_many,
+            {"chat_id": {"$in": [str(chat_id), int(chat_id)]}},
+        )
+        return result.deleted_count
+
+    async def update_tgfile_title(self, chat_id, message_id, title):
+        result = await asyncio.to_thread(
+            self.files.update_many,
+            {
+                "chat_id": {"$in": [str(chat_id), int(chat_id)]},
+                "msg_id": {"$in": [str(message_id), int(message_id)]},
+            },
+            {"$set": {"display_title": title}},
+        )
+        await asyncio.to_thread(
+            self.collection.update_many,
+            {
+                "chat_id": {"$in": [str(chat_id), int(chat_id)]},
+                "file_id": {"$in": [str(message_id), int(message_id)]},
+                "type": "file",
+            },
+            {"$set": {"name": title}},
+        )
+        return result.matched_count
+
     async def update_tgfile_settings(self, chat_id, message_id, access, downloadable):
         result = await asyncio.to_thread(
             self.files.update_many,
@@ -190,7 +217,10 @@ class Database:
                 "chat_id": {"$in": [str(chat_id), int(chat_id)]},
                 "msg_id": {"$in": [str(file_id), numeric_file_id]},
             },
-            {"$set": file, "$setOnInsert": {"access": "free", "downloadable": True}},
+            {
+                "$set": file,
+                "$setOnInsert": {"access": "free", "downloadable": True},
+            },
             upsert=True,
         )
         return result.upserted_id is not None
@@ -200,7 +230,10 @@ class Database:
         words = re.findall(r'\w+', query.lower())
         regex_pattern = '.*'.join(f'(?=.*{re.escape(word)})' for word in words)
         regex_query = {'$regex': f'.*{regex_pattern}.*', '$options': 'i'}
-        query = {'chat_id': {'$in': [str(id), int(id)]}, 'title': regex_query}
+        query = {
+            'chat_id': {'$in': [str(id), int(id)]},
+            '$or': [{'title': regex_query}, {'display_title': regex_query}],
+        }
         offset = (int(page) - 1) * per_page
         return await asyncio.to_thread(lambda: list(self.files.find(query).sort(
             'msg_id', DESCENDING).skip(offset).limit(per_page)))
@@ -213,7 +246,11 @@ class Database:
                     "msg_id": {"$in": [str(file["msg_id"]), int(file["msg_id"])]},
                 },
                 {
-                    "$set": {**file, "chat_id": str(file["chat_id"]), "msg_id": int(file["msg_id"])},
+                    "$set": {
+                        **file,
+                        "chat_id": str(file["chat_id"]),
+                        "msg_id": int(file["msg_id"]),
+                    },
                     "$setOnInsert": {"access": "free", "downloadable": True},
                 },
                 upsert=True,
@@ -244,7 +281,7 @@ class Database:
             {"cover": 1, "cover_type": 1},
         )
 
-    async def create_user(self, username, password_hash, tier="free"):
+    async def create_user(self, username, password_hash, tier="free", expires_at=None):
         await asyncio.to_thread(
             self.users.update_one,
             {"_id": username.lower()},
@@ -253,10 +290,27 @@ class Database:
                 "password_hash": password_hash,
                 "tier": tier,
                 "active": True,
+                "expires_at": expires_at,
                 "updated_at": datetime.now(timezone.utc),
             }},
             upsert=True,
         )
+
+    async def update_user(self, username, tier, active, expires_at=None, password_hash=None):
+        changes = {
+            "tier": tier,
+            "active": bool(active),
+            "expires_at": expires_at,
+            "updated_at": datetime.now(timezone.utc),
+        }
+        if password_hash:
+            changes["password_hash"] = password_hash
+        result = await asyncio.to_thread(
+            self.users.update_one,
+            {"_id": username.lower()},
+            {"$set": changes},
+        )
+        return result.matched_count
 
     async def get_user(self, username):
         if not username:

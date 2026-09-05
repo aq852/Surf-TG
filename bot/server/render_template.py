@@ -42,7 +42,7 @@ def _ad_slot():
     )
 
 
-async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', accounts='', downloadable=True, account_role=''):
+async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', accounts='', downloadable=True, account_role='', display_title=''):
     tpath = ospath.join('bot', 'server', 'template')
     if route == 'login':
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
@@ -89,7 +89,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             '/')[0].strip(), get_readable_file_size(file_data.file_size)
         if filename is None:
             filename = "Proper Filename is Missing"
-        raw_filename = clean_filename(filename)
+        raw_filename = clean_filename(display_title or filename)
         filename = escape(raw_filename)
         if tag == 'video':
             async with aiopen(ospath.join(tpath, 'video.html'), encoding='utf-8') as r:

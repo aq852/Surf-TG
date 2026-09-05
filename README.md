@@ -83,7 +83,7 @@ Important settings:
 | `ALLOWED_TELEGRAM_USERS` | Telegram numeric user IDs allowed to request files through bot deep links |
 | `MULTI_TOKEN1...50` | Optional extra bot tokens used for streaming capacity |
 | `SITE_NAME` | Display name; defaults to `AkMovieVerse` |
-| `SITE_CREDIT` | Footer credit; defaults to `Built by aq852` |
+| `SITE_CREDIT` | Footer credit; defaults to `By AkMovieVerse` |
 | `FILENAME_CLEANUP_REGEX` | Optional additional case-insensitive regex removed from indexed titles |
 | `AD_TITLE` | Advertisement label/text; leave empty to disable ad slots |
 | `AD_URL` | Required HTTP(S) destination when an ad is enabled |
@@ -121,7 +121,7 @@ Re-run `/index` after changing filename-cleanup rules. Index batches are committ
 
 ## Accounts and premium access
 
-Sign in as the administrator and open **Viewer and premium accounts** to create a unique login for each member. On a channel page, open a file card's **Manage** panel to mark it free or premium, hide its download button, or remove its indexed row.
+Sign in as the administrator and open **Viewer and premium accounts** to create a unique login for each member. Existing accounts can be opened to change their password, free/premium tier, enabled status, or automatic expiry date. On a channel page, open a file card's **Manage** panel to rename only its displayed title, mark it free or premium, hide its download button, or remove its indexed row. The channel danger zone can remove every indexed row in that channel at once; neither delete action removes the original Telegram messages.
 
 “Watch only” is a policy control, not DRM: any browser that can decode a video receives its bytes and a determined viewer can capture them. AkMovieVerse hides and cryptographically scopes the explicit download action, but it does not claim to make streamed media impossible to copy. Likewise, individual accounts improve accountability, but preventing credential sharing completely requires server-side device/session limits or a paid identity provider.
 

@@ -82,6 +82,7 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free"):
 """
     cards = []
     for post in posts:
+        display_title = str(post.get("display_title") or post["title"])
         access = post.get("access", "free")
         entitled = is_admin or user_tier == "premium" or access != "premium"
         token = create_stream_token(Telegram.SECRET_KEY, int(chat_id), int(post["msg_id"]), ttl=Telegram.STREAM_TOKEN_TTL) if entitled else ""
@@ -99,6 +100,12 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free"):
                 f'<option value="free">Free</option><option value="premium"{selected}>Premium</option></select>'
                 f'<label class="check-label"><input type="checkbox" name="downloadable" value="yes"{checked}> Allow download button</label>'
                 '<button class="btn btn-primary btn-sm">Save</button></form>'
+                '<form action="/indexed/rename" method="post">'
+                f'<input type="hidden" name="chat_id" value="{public_chat_id}">'
+                f'<input type="hidden" name="message_id" value="{int(post["msg_id"])}">'
+                '<label>Display name</label>'
+                f'<input class="form-control" name="title" maxlength="500" value="{escape(display_title, quote=True)}" required>'
+                '<button class="btn btn-primary btn-sm">Rename display name</button></form>'
                 '<form action="/indexed/delete" method="post" onsubmit="return confirm(\'Remove this indexed file?\')">'
                 f'<input type="hidden" name="chat_id" value="{public_chat_id}"><input type="hidden" name="message_id" value="{int(post["msg_id"])}">'
                 '<button class="btn btn-danger btn-sm">Delete index</button></form></details>'
@@ -106,7 +113,7 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free"):
         cards.append(phtml.format(
             chat_id=public_chat_id, id=int(post["msg_id"]),
             img=f"/api/thumb/{chat_id}?id={int(post['msg_id'])}",
-            title=escape(str(post["title"])), hash=token,
+            title=escape(display_title), hash=token,
             size=escape(str(post['size'])), type=escape(str(post['type'])),
             open_tag=(f'<a href="/watch/{public_chat_id}?id={int(post["msg_id"])}&token={token}">' if entitled else '<div class="locked-file">'),
             close_tag='</a>' if entitled else '</div>',
@@ -114,7 +121,7 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free"):
             admin_checkbox=(
                 '<input type="checkbox" class="form-check-input position-absolute top-0 end-0 m-2" '
                 'onchange="checkSendButton()" id="selectCheckbox" '
-                f'data-id="{int(post["msg_id"])}|{token}|{escape(str(post["title"]), quote=True)}|'
+                f'data-id="{int(post["msg_id"])}|{token}|{escape(display_title, quote=True)}|'
                 f'{escape(str(post["size"]), quote=True)}|{escape(str(post["type"]), quote=True)}|'
                 f'/api/thumb/{chat_id}?id={int(post["msg_id"])}">'
                 if is_admin else ''

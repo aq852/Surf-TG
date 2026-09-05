@@ -80,7 +80,10 @@ class IndexingTests(IsolatedAsyncioTestCase):
         self.assertNotIn('/watch/123?id=7', html)
 
     async def test_admin_gets_index_management_controls(self):
-        post = {"msg_id": "7", "title": "Movie", "size": "1GB", "type": "video/mp4"}
+        post = {"msg_id": "7", "title": "Telegram original", "display_title": "Movie", "size": "1GB", "type": "video/mp4"}
         html = await index.posts_file([post], -100123, is_admin=True, user_tier="premium")
         self.assertIn("Delete index", html)
         self.assertIn("Allow download button", html)
+        self.assertIn("Rename display name", html)
+        self.assertIn('value="Movie"', html)
+        self.assertNotIn("Telegram original", html)

@@ -1,4 +1,5 @@
 import os
+import time
 
 # Explicit values keep the smoke tests isolated from a developer's config.env.
 os.environ.update({
@@ -91,6 +92,26 @@ class WebSmokeTests(AioHTTPTestCase):
             )
         self.assertEqual(302, response.status)
 
+    async def test_expired_login_session_is_rejected(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        account = {
+            "username": "member1",
+            "role": "viewer",
+            "tier": "premium",
+            "expires_at": time.time() - 1,
+        }
+        with patch("bot.server.stream_routes.authenticate", AsyncMock(return_value=account)):
+            response = await self.client.post(
+                "/login",
+                data={"username": "member1", "password": "member-password"},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        response = await self.client.get("/", allow_redirects=False)
+        self.assertEqual(302, response.status)
+        self.assertEqual("/login", response.headers["Location"])
+
     async def test_admin_can_delete_an_index_row(self):
         origin = str(self.server.make_url("/")).rstrip("/")
         await self.client.post(
@@ -112,6 +133,64 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertEqual(302, response.status)
         delete.assert_awaited_once_with(-100123, 7)
 
+    async def test_admin_can_delete_all_channel_index_rows(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        with (
+            patch("bot.server.stream_routes.get_authorized_chat_ids", AsyncMock(return_value={-100123})),
+            patch("bot.server.stream_routes.db.delete_channel_tgfiles", AsyncMock(return_value=8)) as delete_all,
+        ):
+            response = await self.client.post(
+                "/indexed/delete-all",
+                data={"chat_id": "123"},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        delete_all.assert_awaited_once_with(-100123)
+
+    async def test_admin_can_rename_display_title(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        with (
+            patch("bot.server.stream_routes.get_authorized_chat_ids", AsyncMock(return_value={-100123})),
+            patch("bot.server.stream_routes.db.update_tgfile_title", AsyncMock(return_value=1)) as rename,
+        ):
+            response = await self.client.post(
+                "/indexed/rename",
+                data={"chat_id": "123", "message_id": "7", "title": "  Better   Movie Name  "},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        rename.assert_awaited_once_with(-100123, 7, "Better Movie Name")
+
+    async def test_viewer_cannot_bulk_delete_index(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "viewer", "password": "viewer-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        response = await self.client.post(
+            "/indexed/delete-all",
+            data={"chat_id": "123"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        self.assertEqual(403, response.status)
+
     async def test_viewer_html_contains_no_admin_controls(self):
         with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
             html = await render_page(
@@ -129,6 +208,7 @@ class WebSmokeTests(AioHTTPTestCase):
             )
         self.assertIn("Library settings", html)
         self.assertIn("Viewer and premium accounts", html)
+        self.assertIn("Expires on", html)
         self.assertIn("Create a collection", html)
         self.assertNotIn("ADMIN_START", html)
         self.assertIn("Administrator", html)
