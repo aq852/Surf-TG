@@ -18,7 +18,8 @@ os.environ.update({
     "COOKIE_SECURE": "false",
 })
 
-from aiohttp.test_utils import AioHTTPTestCase
+from aiohttp import CookieJar
+from aiohttp.test_utils import AioHTTPTestCase, TestClient
 from unittest.mock import AsyncMock, patch
 
 from bot.server import web_server
@@ -30,6 +31,12 @@ from bot.helper.security import hash_password
 class WebSmokeTests(AioHTTPTestCase):
     async def get_application(self):
         return await web_server()
+
+    async def get_client(self, server):
+        # aiohttp 3.14 correctly rejects cookies for a numeric test host unless
+        # this explicit test-only jar setting is used. Browser production hosts
+        # remain protected by the normal cookie rules.
+        return TestClient(server, cookie_jar=CookieJar(unsafe=True))
 
     async def test_login_page_and_security_headers(self):
         response = await self.client.get("/login")
