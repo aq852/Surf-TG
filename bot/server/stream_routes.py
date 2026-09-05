@@ -667,10 +667,10 @@ async def home_route(request):
             phtml = await posts_chat(channels)
             tier = account_tier(session)
             dhtml = await post_playlist(playlists, is_admin=admin, user_tier=tier)
-            latest_html = ''.join(
+            latest_html = ''.join([
                 await posts_file([post], int(post["chat_id"]), is_admin=admin, user_tier=tier)
                 for post in latest
-            )
+            ])
             accounts = await _users_html() if admin else ""
             return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, database=latest_html, accounts=accounts, is_admin=admin, account_role=role_label, display_title=request.query.get("view", "channels")), content_type='text/html')
         except web.HTTPException:

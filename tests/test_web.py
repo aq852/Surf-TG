@@ -242,6 +242,26 @@ class WebSmokeTests(AioHTTPTestCase):
             response = await self.client.get("/playlist?db=507f1f77bcf86cd799439011")
         self.assertEqual(403, response.status)
 
+    async def test_home_renders_a_latest_indexed_file(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "viewer", "password": "viewer-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        latest = [{"chat_id": "-100123", "msg_id": "7", "title": "Latest upload", "size": "1 GB", "type": "video/mp4"}]
+        with (
+            patch("bot.server.stream_routes.get_chats", AsyncMock(return_value=[])),
+            patch("bot.server.stream_routes.db.get_Dbfolder", AsyncMock(return_value=[])),
+            patch("bot.server.stream_routes.get_authorized_chat_ids", AsyncMock(return_value={-100123})),
+            patch("bot.server.stream_routes.db.list_latest_tgfiles", AsyncMock(return_value=latest)),
+            patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)),
+        ):
+            response = await self.client.get("/?view=latest")
+        self.assertEqual(200, response.status)
+        self.assertIn("Latest upload", await response.text())
+
     async def test_member_profile_shows_expiry_and_support(self):
         origin = str(self.server.make_url("/")).rstrip("/")
         account = {"username": "member1", "role": "viewer", "tier": "premium"}
