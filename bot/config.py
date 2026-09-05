@@ -61,7 +61,6 @@ class Telegram:
                     "python -m bot.helper.security"
                 )
         if cls.FILENAME_CLEANUP_REGEX:
-            import re
             try:
                 re.compile(cls.FILENAME_CLEANUP_REGEX)
             except re.error as exc:
