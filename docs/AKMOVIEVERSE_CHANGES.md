@@ -20,7 +20,7 @@ The `aq852/Surf-TG` evolution introduced:
 - self-service member profiles, password changes, expiry countdown, and owner support;
 - independently controlled manual and sandboxed publisher-network advertising;
 - display-only indexed filename renaming and channel-wide index cleanup;
-- midnight, cinema, ocean, and light themes;
+- persistent per-browser theme selection with midnight, cinema, ocean, Royal Gold, Aurora Glass, AMOLED Black, Graphite Luxe, and Ivory Daylight palettes;
 - optional ad placements without bundled tracking code;
 - regression tests covering security, ranges, UI, indexing, and cleanup.
 

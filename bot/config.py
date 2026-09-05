@@ -8,6 +8,10 @@ if Path("config.env").exists():
     load_dotenv("config.env")
 
 class Telegram:
+    THEMES = frozenset({
+        "midnight", "cinema", "ocean", "royal", "aurora", "amoled",
+        "graphite", "light",
+    })
     API_ID = int(getenv("API_ID", "0"))
     API_HASH = getenv("API_HASH", "")
     BOT_TOKEN = getenv("BOT_TOKEN", "")
@@ -46,6 +50,8 @@ class Telegram:
             raise RuntimeError(f"Missing required configuration: {', '.join(missing)}")
         if len(cls.SECRET_KEY) < 32:
             raise RuntimeError("SECRET_KEY must be at least 32 random characters")
+        if cls.THEME not in cls.THEMES:
+            raise RuntimeError(f"THEME must be one of: {', '.join(sorted(cls.THEMES))}")
         if not cls.PASSWORD_HASH and not cls.PASSWORD:
             raise RuntimeError("Set PASSWORD_HASH (recommended) or VIEWER_PASSWORD")
         if not cls.ADMIN_PASSWORD_HASH and cls.ADMIN_PASSWORD in {"", "surfTG"}:

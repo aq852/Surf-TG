@@ -22,7 +22,7 @@ It keeps the original project's direct workflow—sign in, open a channel, choos
 - Individual free or premium viewer accounts stored as password hashes
 - Member profile with expiry countdown, self-service password changes, and Telegram owner support
 - Independently switchable manual ads and sandboxed Adsterra/Monetag publisher tags
-- Midnight, cinema, ocean, and light themes with a personal night-mode toggle
+- Eight persistent themes, including Royal Gold, Aurora Glass, AMOLED Black, and Graphite Luxe
 - Conservative filename cleanup for links, handles, and channel promotions
 - Optional, clearly labelled ad placement configured by environment variables
 - Docker deployment and automated regression tests
@@ -86,6 +86,7 @@ Important settings:
 | `MULTI_TOKEN1...50` | Optional extra bot tokens used for streaming capacity |
 | `SITE_NAME` | Display name; defaults to `AkMovieVerse` |
 | `SITE_CREDIT` | Footer credit; defaults to `By AkMovieVerse` |
+| `THEME` | Default for new browsers: `midnight`, `cinema`, `ocean`, `royal`, `aurora`, `amoled`, `graphite`, or `light` |
 | `FILENAME_CLEANUP_REGEX` | Optional additional case-insensitive regex removed from indexed titles |
 | `AD_TITLE` | Advertisement label/text; leave empty to disable ad slots |
 | `AD_URL` | Required HTTP(S) destination when an ad is enabled |
@@ -132,7 +133,7 @@ Members can open **Profile** to see their username, plan, and remaining account 
 
 ## Channel art, themes, and ads
 
-Administrators can upload a PNG, JPEG, or WebP channel picture (maximum 5 MB) from the channel page. The global theme is selected in Library settings; each browser can temporarily toggle light/night mode.
+Administrators can upload a PNG, JPEG, or WebP channel picture (maximum 5 MB) from the channel page. Library settings choose the default theme for new browsers. Every signed-in page also has a personal theme picker that remembers its selection in that browser. The sun/moon button switches to Ivory Daylight and then restores the viewer's last dark theme.
 
 The administrator can independently enable the existing manual ad or a publisher tag from Adsterra/Monetag under **Library and advertising settings**. Paste the exact tag issued by the selected publisher dashboard and choose its frame height. Publisher JavaScript runs in a restricted sandboxed iframe, separate from AkMovieVerse session cookies and the parent page. Network ads still involve third-party tracking and must comply with the provider's rules and the laws applicable to your visitors.
 

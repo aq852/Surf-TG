@@ -341,7 +341,7 @@ async def editConfig_route(request):
     data = await request.post()
     channel = data.get('channel')
     theme = data.get('theme')
-    if theme not in {"midnight", "cinema", "ocean", "light"}:
+    if theme not in Telegram.THEMES:
         raise web.HTTPBadRequest(text="Invalid theme")
     try:
         [int(value.strip()) for value in str(channel or "").split(",") if value.strip()]

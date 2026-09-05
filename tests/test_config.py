@@ -18,6 +18,7 @@ class ConfigValidationTests(unittest.TestCase):
             "ADMIN_PASSWORD": "admin-safe-password",
             "FILENAME_CLEANUP_REGEX": "",
             "SUPPORT_USERNAME": "AK_ownerbot",
+            "THEME": "midnight",
         }
         values.update(overrides)
         return values
@@ -29,6 +30,15 @@ class ConfigValidationTests(unittest.TestCase):
     def test_invalid_support_username_is_rejected(self):
         with patch.multiple(Telegram, **self._values(SUPPORT_USERNAME="bad link")):
             with self.assertRaisesRegex(RuntimeError, "SUPPORT_USERNAME"):
+                Telegram.validate()
+
+    def test_premium_theme_is_valid(self):
+        with patch.multiple(Telegram, **self._values(THEME="royal")):
+            Telegram.validate()
+
+    def test_unknown_theme_is_rejected(self):
+        with patch.multiple(Telegram, **self._values(THEME="neon")):
+            with self.assertRaisesRegex(RuntimeError, "THEME"):
                 Telegram.validate()
 
 

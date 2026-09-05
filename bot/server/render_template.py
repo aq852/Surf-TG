@@ -86,7 +86,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
         theme = None
     if theme is None or theme == '':
         theme = Telegram.THEME
-    theme = theme if theme in {"midnight", "cinema", "ocean", "light"} else "midnight"
+    theme = theme if theme in Telegram.THEMES else "midnight"
     safe_title = escape(str(msg or ""))
     if route == 'home':
         try:
@@ -160,5 +160,6 @@ def _finish_page(html, theme, is_admin, ad_slot):
         .replace("<!-- BrandName -->", safe_name)
         .replace("<!-- SiteCredit -->", safe_credit)
         .replace("<!-- AdSlot -->", ad_slot)
+        .replace("<html ", f'<html data-theme="{theme}" ')
         .replace("<body>", f'<body data-theme="{theme}" data-base-theme="{theme}">')
     )

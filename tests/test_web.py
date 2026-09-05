@@ -291,6 +291,22 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("Create a collection", html)
         self.assertNotIn("ADMIN_START", html)
         self.assertIn("Administrator", html)
+        self.assertIn("Royal Gold", html)
+        self.assertIn("Aurora Glass", html)
+        self.assertIn("AMOLED Black", html)
+        self.assertIn("Graphite Luxe", html)
+
+    async def test_saved_premium_theme_is_rendered_before_javascript(self):
+        values = {"theme": "royal"}
+        with patch(
+            "bot.server.render_template.db.get_variable",
+            AsyncMock(side_effect=lambda key: values.get(key)),
+        ):
+            html = await render_page(
+                None, None, route="home", html="", playlist="", is_admin=False
+            )
+        self.assertIn('<html data-theme="royal"', html)
+        self.assertIn('<body data-theme="royal" data-base-theme="royal">', html)
 
     def test_channel_cover_magic_detection(self):
         self.assertEqual("image/png", _image_type(b"\x89PNG\r\n\x1a\nrest"))
