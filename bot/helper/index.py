@@ -12,21 +12,25 @@ from bot.helper.security import create_stream_token
 db = Database()
 
 
-async def get_messages(chat_id, first_message_id, last_message_id, batch_size=200):
+async def get_messages(chat_id, first_message_id, last_message_id, batch_size=200, on_batch=None):
     messages = []
     current_message_id = first_message_id
     while current_message_id <= last_message_id:
         batch_message_ids = list(range(current_message_id, min(current_message_id + batch_size, last_message_id + 1)))
         batch_messages = await StreamBot.get_messages(chat_id, batch_message_ids, replies=0)
+        batch_files = []
         for message in batch_messages:
             if message:
                 if file := message.video or message.document:
                     title = file.file_name or message.caption or file.file_id
                     title, _ = splitext(title)
                     title = re.sub(r'[.,|_\',]', ' ', title)
-                    messages.append({"msg_id": str(message.id), "title": title,
-                                     "hash": file.file_unique_id[:6], "size": get_readable_file_size(file.file_size),
-                                     "type": file.mime_type, "chat_id": str(chat_id)})
+                    batch_files.append({"msg_id": str(message.id), "title": title,
+                                        "hash": file.file_unique_id[:6], "size": get_readable_file_size(file.file_size),
+                                        "type": file.mime_type, "chat_id": str(chat_id)})
+        messages.extend(batch_files)
+        if on_batch is not None and batch_files:
+            await on_batch(batch_files)
         LOGGER.info(
             "Index scan progress for channel %s: %s/%s messages checked, %s files found",
             chat_id,

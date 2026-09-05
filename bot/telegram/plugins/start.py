@@ -74,8 +74,13 @@ async def index_command(bot: Client, message: Message):
         wait_message = await message.reply(
             "Indexing this channel now. Avoid uploading new files until it completes."
         )
-        files = await get_messages(message.chat.id, 1, message.id)
-        indexed = await db.add_btgfiles(files) if files else 0
+        indexed = 0
+
+        async def save_batch(batch):
+            nonlocal indexed
+            indexed += await db.add_btgfiles(batch)
+
+        files = await get_messages(message.chat.id, 1, message.id, on_batch=save_batch)
         await wait_message.delete()
         await bot.send_message(
             message.chat.id,

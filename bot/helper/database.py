@@ -125,7 +125,9 @@ class Database:
         return config.get(key) if config is not None else None
 
     async def list_tgfiles(self, id, page=1, per_page=50):
-        query = {'chat_id': id}
+        # Indexers persist Telegram identifiers as strings. Accept legacy integer
+        # rows too so upgrades do not make an existing library disappear.
+        query = {'chat_id': {'$in': [str(id), int(id)]}}
         offset = (int(page) - 1) * per_page
         return await asyncio.to_thread(lambda: list(self.files.find(query).sort(
             'msg_id', DESCENDING).skip(offset).limit(per_page)))
@@ -146,7 +148,7 @@ class Database:
         words = re.findall(r'\w+', query.lower())
         regex_pattern = '.*'.join(f'(?=.*{re.escape(word)})' for word in words)
         regex_query = {'$regex': f'.*{regex_pattern}.*', '$options': 'i'}
-        query = {'chat_id': id, 'title': regex_query}
+        query = {'chat_id': {'$in': [str(id), int(id)]}, 'title': regex_query}
         offset = (int(page) - 1) * per_page
         return await asyncio.to_thread(lambda: list(self.files.find(query).sort(
             'msg_id', DESCENDING).skip(offset).limit(per_page)))

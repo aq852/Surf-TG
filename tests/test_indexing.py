@@ -52,3 +52,23 @@ class IndexingTests(IsolatedAsyncioTestCase):
         self.assertEqual(3, mocked.await_count)
         self.assertEqual("1", files[0]["msg_id"])
         self.assertEqual("-100123", files[0]["chat_id"])
+
+    async def test_index_batches_can_be_persisted_incrementally(self):
+        message = SimpleNamespace(
+            id=1,
+            video=SimpleNamespace(
+                file_name="video.mp4",
+                file_id="file-1",
+                file_unique_id="unique-1",
+                file_size=1024,
+                mime_type="video/mp4",
+            ),
+            document=None,
+            caption=None,
+        )
+        save_batch = AsyncMock()
+        with patch.object(index.StreamBot, "get_messages", AsyncMock(return_value=[message])):
+            await index.get_messages(-100123, 1, 1, on_batch=save_batch)
+
+        save_batch.assert_awaited_once()
+        self.assertEqual("1", save_batch.await_args.args[0][0]["msg_id"])
