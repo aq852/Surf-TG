@@ -113,6 +113,25 @@ async def _analytics_html():
         ("Active premium devices", summary["active_premium_sessions"]),
         ("Premium expiring in 7 days", summary["expiring_soon"]),
     )
+    cards = "".join(
+        f'<div class="metric-card"><span>{escape(label)}</span><strong>{value}</strong></div>'
+        for label, value in metrics
+    )
+    channel_rows = "".join(
+        '<li><span>{}</span><strong>{} files</strong></li>'.format(
+            escape(names.get(row["chat_id"], row["chat_id"])), row["files"]
+        )
+        for row in summary["by_channel"]
+    ) or '<li><span class="muted">No indexed files yet.</span></li>'
+    return (
+        '<details class="panel analytics-panel"><summary><span><strong>Library analytics</strong>'
+        f'<small>{summary["channels"]} channels · {summary["indexed_files"]} indexed files</small>'
+        '</span><span class="analytics-chevron">⌄</span></summary>'
+        f'<div class="analytics-content"><section class="admin-metrics">{cards}</section>'
+        '<div class="section-head"><h2>Files by channel</h2>'
+        '<span class="muted">Current indexed library</span></div>'
+        f'<ul class="analytics-list">{channel_rows}</ul></div></details>'
+    )
 
 
 async def _requests_html(session, submitted=False):
