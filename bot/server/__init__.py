@@ -10,6 +10,7 @@ from aiohttp_session.cookie_storage import EncryptedCookieStorage
 from bot.server.stream_routes import routes
 from bot.config import Telegram
 from bot.helper.database import Database
+from bot.helper.accounts import premium_session_is_active
 from pathlib import Path
 
 
@@ -38,6 +39,20 @@ async def browser_security(request, handler):
 @web.middleware
 async def account_expiry(request, handler):
     session = await get_session(request)
+    session_id = session.get("premium_session_id")
+    # A member must always be able to clear a stale browser session, even if
+    # MongoDB is briefly unavailable.
+    if session.get("user") and session_id and request.path != "/logout":
+        try:
+            active = await premium_session_is_active(str(session["user"]), str(session_id))
+        except Exception:
+            # Do not let a database outage silently bypass premium access control.
+            raise web.HTTPServiceUnavailable(text="Premium session validation is temporarily unavailable")
+        if not active:
+            session.clear()
+            if request.method == "GET" and request.path != "/login":
+                raise web.HTTPFound("/login")
+            raise web.HTTPUnauthorized(text="This premium account was signed in on another device")
     expires_at = session.get("expires_at")
     if session.get("user") and expires_at is not None and float(expires_at) <= time.time():
         session.clear()

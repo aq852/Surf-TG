@@ -23,7 +23,7 @@ from bot.server.render_template import render_page
 from bot.helper.ranges import RangeNotSatisfiable, parse_range, plan_chunks
 from bot.helper.security import StreamTokenError, verify_stream_token
 from bot.helper.security import hash_password, verify_password
-from bot.helper.accounts import account_tier, authenticate, is_admin
+from bot.helper.accounts import account_tier, authenticate, is_admin, issue_premium_session, revoke_premium_session
 from bot.helper.cache import rm_cache
 from bot.helper.channel_urls import channel_path, resolve_channel_slug
 
@@ -62,6 +62,7 @@ async def _users_html():
         username = escape(str(user.get("username", user["_id"])))
         user_id = escape(str(user["_id"]), quote=True)
         tier = str(user.get("tier", "free"))
+        session_limit = max(1, min(int(user.get("session_limit", 1)), 5))
         premium_selected = " selected" if tier == "premium" else ""
         active = bool(user.get("active", True))
         active_checked = " checked" if active else ""
@@ -72,14 +73,17 @@ async def _users_html():
             normalized_expiry = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
             expired = normalized_expiry <= datetime.now(timezone.utc)
         status = "Expired" if expired else ("Active" if active else "Disabled")
+        active_sessions = await db.premium_session_count(user["username"]) if tier == "premium" else 0
+        session_summary = f"{active_sessions}/{session_limit} active devices" if tier == "premium" else "No device limit"
         rows.append(
             '<details class="user-editor"><summary>'
-            f'<strong>{username}</strong> <span class="badge">{escape(tier)}</span> <span class="badge">{status}</span>'
+            f'<strong>{username}</strong> <span class="badge">{escape(tier)}</span> <span class="badge">{status}</span> <span class="badge">{session_summary}</span>'
             '</summary><form action="/admin/users/update" method="post">'
             f'<input type="hidden" name="username" value="{user_id}">'
             '<div class="form-grid"><div><label>Tier</label><select class="form-select" name="tier">'
             f'<option value="free">Free viewer</option><option value="premium"{premium_selected}>Premium viewer</option></select></div>'
             f'<div><label>Expires on (optional)</label><input class="form-control" type="date" name="expires_at" value="{expiry_value}"></div>'
+            f'<div><label>Premium devices</label><select class="form-select" name="session_limit"><option value="1"{" selected" if session_limit == 1 else ""}>1 device</option><option value="2"{" selected" if session_limit == 2 else ""}>2 devices</option><option value="3"{" selected" if session_limit == 3 else ""}>3 devices</option><option value="4"{" selected" if session_limit == 4 else ""}>4 devices</option><option value="5"{" selected" if session_limit == 5 else ""}>5 devices</option></select></div>'
             '<div><label>New password (optional)</label><input class="form-control" type="password" name="password" minlength="10" placeholder="Leave blank to keep current"></div></div>'
             f'<label class="check-label"><input type="checkbox" name="active" value="yes"{active_checked}> Account active</label>'
             '<button class="btn btn-primary btn-sm">Save account</button></form>'
@@ -88,6 +92,16 @@ async def _users_html():
             '<button class="btn btn-danger btn-sm">Delete account</button></form></details>'
         )
     return "".join(rows) or '<p class="muted">No individual accounts yet.</p>'
+
+
+def _parse_session_limit(value) -> int:
+    try:
+        limit = int(value)
+    except (TypeError, ValueError) as exc:
+        raise web.HTTPBadRequest(text="Premium device limit must be between 1 and 5") from exc
+    if not 1 <= limit <= 5:
+        raise web.HTTPBadRequest(text="Premium device limit must be between 1 and 5")
+    return limit
 
 
 def _parse_expiry(value):
@@ -183,6 +197,8 @@ async def login_route(request):
     account = await authenticate(username, password)
     if account:
         login_attempts.pop(remote, None)
+        redirect_url = session.get("redirect_url", "/")
+        session.clear()
         session['user'] = account["username"]
         session['role'] = account["role"]
         session['tier'] = account["tier"]
@@ -190,10 +206,13 @@ async def login_route(request):
             session['expires_at'] = account["expires_at"]
         else:
             session.pop('expires_at', None)
-        if 'redirect_url' not in session:
-            session['redirect_url'] = '/'
-        redirect_url = session['redirect_url']
-        del session['redirect_url']
+        if account.get("managed") and account.get("tier") == "premium":
+            session_id, session_expiry = await issue_premium_session(account)
+            session["premium_session_id"] = session_id
+            session["premium_session_expires_at"] = session_expiry
+        else:
+            session.pop("premium_session_id", None)
+            session.pop("premium_session_expires_at", None)
         raise web.HTTPFound(redirect_url)
     else:
         attempts.append(now)
@@ -205,6 +224,7 @@ async def login_route(request):
 @routes.post('/logout')
 async def logout_route(request):
     session = await get_session(request)
+    await revoke_premium_session(session.get("premium_session_id"))
     session.clear()
     raise web.HTTPFound('/login')
 
@@ -424,8 +444,9 @@ async def create_user_route(request):
     if tier not in {"free", "premium"}:
         raise web.HTTPBadRequest(text="Invalid account tier")
     expires_at = _parse_expiry(data.get("expires_at"))
+    session_limit = _parse_session_limit(data.get("session_limit", 1))
     password_hash = await asyncio.to_thread(hash_password, password)
-    await db.create_user(username, password_hash, tier, expires_at)
+    await db.create_user(username, password_hash, tier, expires_at, session_limit)
     raise web.HTTPFound('/#accounts')
 
 
@@ -445,13 +466,19 @@ async def update_user_route(request):
     if password and len(password) < 10:
         raise web.HTTPBadRequest(text="Password must contain at least 10 characters")
     password_hash = await asyncio.to_thread(hash_password, password) if password else None
+    session_limit = _parse_session_limit(data.get("session_limit", 1))
     await db.update_user(
         username,
         tier,
         data.get("active") == "yes",
         _parse_expiry(data.get("expires_at")),
         password_hash,
+        session_limit,
     )
+    if tier != "premium" or data.get("active") != "yes" or password_hash:
+        await db.revoke_premium_sessions(username)
+    else:
+        await db.enforce_premium_session_limit(username, session_limit)
     raise web.HTTPFound('/#accounts')
 
 
@@ -496,6 +523,14 @@ async def profile_password_route(request):
     if len(new_password) < 10:
         raise web.HTTPBadRequest(text="New password must contain at least 10 characters")
     await db.change_user_password(username, await asyncio.to_thread(hash_password, new_password))
+    if account_tier(session) == "premium":
+        await db.revoke_premium_sessions(username)
+        session_id, session_expiry = await issue_premium_session({
+            "username": username,
+            "session_limit": user.get("session_limit", 1),
+        })
+        session["premium_session_id"] = session_id
+        session["premium_session_expires_at"] = session_expiry
     raise web.HTTPFound('/profile?changed=1')
 
 

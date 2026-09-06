@@ -101,6 +101,44 @@ class WebSmokeTests(AioHTTPTestCase):
             )
         self.assertEqual(302, response.status)
 
+    async def test_managed_premium_login_creates_server_side_session(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        account = {
+            "username": "member1", "role": "viewer", "tier": "premium",
+            "managed": True, "session_limit": 1,
+        }
+        with (
+            patch("bot.server.stream_routes.authenticate", AsyncMock(return_value=account)),
+            patch("bot.server.stream_routes.issue_premium_session", AsyncMock(return_value=("session-token", time.time() + 60))) as issue,
+        ):
+            response = await self.client.post(
+                "/login",
+                data={"username": "member1", "password": "member-password"},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        issue.assert_awaited_once_with(account)
+
+    async def test_logout_revokes_premium_browser_session(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        account = {
+            "username": "member1", "role": "viewer", "tier": "premium",
+            "managed": True, "session_limit": 1,
+        }
+        with (
+            patch("bot.server.stream_routes.authenticate", AsyncMock(return_value=account)),
+            patch("bot.server.stream_routes.issue_premium_session", AsyncMock(return_value=("session-token", time.time() + 60))),
+        ):
+            await self.client.post(
+                "/login", data={"username": "member1", "password": "member-password"},
+                headers={"Origin": origin}, allow_redirects=False,
+            )
+        with patch("bot.server.stream_routes.revoke_premium_session", AsyncMock()) as revoke:
+            response = await self.client.post("/logout", headers={"Origin": origin}, allow_redirects=False)
+        self.assertEqual(302, response.status)
+        revoke.assert_awaited_once_with("session-token")
+
     async def test_expired_login_session_is_rejected(self):
         origin = str(self.server.make_url("/")).rstrip("/")
         account = {

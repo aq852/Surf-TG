@@ -42,6 +42,10 @@ class Database:
     def users(self):
         return self.db["users"]
 
+    @property
+    def premium_sessions(self):
+        return self.db["premium_sessions"]
+
     @classmethod
     def close_all(cls):
         for client in cls._clients.values():
@@ -326,7 +330,7 @@ class Database:
             {"cover": 1, "cover_type": 1},
         )
 
-    async def create_user(self, username, password_hash, tier="free", expires_at=None):
+    async def create_user(self, username, password_hash, tier="free", expires_at=None, session_limit=1):
         await asyncio.to_thread(
             self.users.update_one,
             {"_id": username.lower()},
@@ -334,6 +338,7 @@ class Database:
                 "username": username,
                 "password_hash": password_hash,
                 "tier": tier,
+                "session_limit": max(1, min(int(session_limit), 5)),
                 "active": True,
                 "expires_at": expires_at,
                 "updated_at": datetime.now(timezone.utc),
@@ -341,9 +346,10 @@ class Database:
             upsert=True,
         )
 
-    async def update_user(self, username, tier, active, expires_at=None, password_hash=None):
+    async def update_user(self, username, tier, active, expires_at=None, password_hash=None, session_limit=1):
         changes = {
             "tier": tier,
+            "session_limit": max(1, min(int(session_limit), 5)),
             "active": bool(active),
             "expires_at": expires_at,
             "updated_at": datetime.now(timezone.utc),
@@ -378,4 +384,62 @@ class Database:
 
     async def delete_user(self, username):
         result = await asyncio.to_thread(self.users.delete_one, {"_id": username.lower()})
+        await self.revoke_premium_sessions(username)
         return result.deleted_count
+
+    async def create_premium_session(self, username, session_id, session_limit, expires_at):
+        """Keep only the newest allowed premium browser sessions for an account."""
+        return await asyncio.to_thread(
+            self._create_premium_session_sync,
+            username.lower(), session_id, max(1, min(int(session_limit), 5)), expires_at,
+        )
+
+    def _create_premium_session_sync(self, username, session_id, session_limit, expires_at):
+        now = datetime.now(timezone.utc)
+        self.premium_sessions.delete_many({"expires_at": {"$lte": now}})
+        self.premium_sessions.insert_one({
+            "_id": session_id,
+            "username": username,
+            "created_at": now,
+            "expires_at": expires_at,
+        })
+        sessions = list(self.premium_sessions.find({"username": username}).sort("created_at", DESCENDING))
+        stale_ids = [item["_id"] for item in sessions[session_limit:]]
+        if stale_ids:
+            self.premium_sessions.delete_many({"_id": {"$in": stale_ids}})
+        return len(sessions[:session_limit])
+
+    async def premium_session_is_active(self, username, session_id):
+        now = datetime.now(timezone.utc)
+        result = await asyncio.to_thread(
+            self.premium_sessions.find_one,
+            {"_id": session_id, "username": username.lower(), "expires_at": {"$gt": now}},
+        )
+        return result is not None
+
+    async def premium_session_count(self, username):
+        now = datetime.now(timezone.utc)
+        await asyncio.to_thread(self.premium_sessions.delete_many, {"expires_at": {"$lte": now}})
+        return await asyncio.to_thread(self.premium_sessions.count_documents, {"username": username.lower()})
+
+    async def revoke_premium_session(self, session_id):
+        if session_id:
+            await asyncio.to_thread(self.premium_sessions.delete_one, {"_id": session_id})
+
+    async def revoke_premium_sessions(self, username):
+        if username:
+            await asyncio.to_thread(self.premium_sessions.delete_many, {"username": username.lower()})
+
+    async def enforce_premium_session_limit(self, username, session_limit):
+        await asyncio.to_thread(
+            self._enforce_premium_session_limit_sync,
+            username.lower(), max(1, min(int(session_limit), 5)),
+        )
+
+    def _enforce_premium_session_limit_sync(self, username, session_limit):
+        now = datetime.now(timezone.utc)
+        self.premium_sessions.delete_many({"expires_at": {"$lte": now}})
+        sessions = list(self.premium_sessions.find({"username": username}).sort("created_at", DESCENDING))
+        stale_ids = [item["_id"] for item in sessions[session_limit:]]
+        if stale_ids:
+            self.premium_sessions.delete_many({"_id": {"$in": stale_ids}})

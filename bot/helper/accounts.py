@@ -2,7 +2,7 @@
 
 import secrets
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bot import LOGGER
 from bot.config import Telegram
@@ -21,6 +21,28 @@ def is_admin(session) -> bool:
 
 def account_tier(session) -> str:
     return "premium" if is_admin(session) else session.get("tier", "free")
+
+
+def premium_session_expiry() -> datetime:
+    return datetime.now(timezone.utc) + timedelta(hours=12)
+
+
+async def issue_premium_session(account: dict) -> tuple[str, float]:
+    """Create a server-side session for a managed premium account only."""
+    session_id = secrets.token_urlsafe(32)
+    expires_at = premium_session_expiry()
+    await db.create_premium_session(
+        account["username"], session_id, account.get("session_limit", 1), expires_at,
+    )
+    return session_id, expires_at.timestamp()
+
+
+async def premium_session_is_active(username: str, session_id: str) -> bool:
+    return bool(session_id) and await db.premium_session_is_active(username, session_id)
+
+
+async def revoke_premium_session(session_id: str | None):
+    await db.revoke_premium_session(session_id)
 
 
 async def authenticate(username: str, password: str):
@@ -52,4 +74,6 @@ async def authenticate(username: str, password: str):
         "role": "viewer",
         "tier": user.get("tier", "free"),
         "expires_at": expires_at.timestamp() if expires_at else None,
+        "managed": True,
+        "session_limit": max(1, min(int(user.get("session_limit", 1)), 5)),
     }
