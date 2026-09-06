@@ -1,5 +1,6 @@
 from asyncio import sleep, create_task
 from os.path import splitext
+import re
 
 from pyrogram import Client, filters
 from pyrogram.enums.parse_mode import ParseMode
@@ -44,9 +45,28 @@ async def authorized_channels() -> set[str]:
     return {str(value).strip() for value in values if str(value).strip()}
 
 
+def parse_file_shortcut(message: Message) -> tuple[int, int] | None:
+    """Parse both normal and deep-link `/start file_<id>-100<chat>` payloads."""
+    parts = getattr(message, "command", None) or []
+    payload = str(parts[1] if len(parts) > 1 else (message.text or "").partition(" ")[2]).strip()
+    match = re.fullmatch(r"file_(\d+)-(-?\d+)", payload)
+    if not match:
+        return None
+    message_id = int(match.group(1))
+    encoded_chat = match.group(2)
+    if encoded_chat.startswith("-100"):
+        chat_id = int(encoded_chat)
+    elif encoded_chat.startswith("100"):
+        chat_id = -int(encoded_chat)
+    else:
+        return None
+    return message_id, chat_id
+
+
 @StreamBot.on_message(filters.command("start") & filters.private)
 async def start_command(bot: Client, message: Message):
-    if "file_" not in (message.text or ""):
+    shortcut = parse_file_shortcut(message)
+    if shortcut is None:
         await message.reply(f"{Telegram.SITE_NAME} is online. Open your private web library to browse files.")
         return
     if not message.from_user or message.from_user.id not in Telegram.ALLOWED_TELEGRAM_USERS:
@@ -62,13 +82,11 @@ async def start_command(bot: Client, message: Message):
         if delivery_enabled is False:
             await message.reply("Temporary Telegram delivery is currently disabled by the owner.")
             return
-        command = message.text.rsplit("_", 1)[-1]
-        message_id, encoded_chat = command.split("-", 1)
-        chat_id = -int(encoded_chat)
+        message_id, chat_id = shortcut
         if str(chat_id) not in await authorized_channels():
             await message.reply("That channel is not authorized.")
             return
-        source = await bot.get_messages(chat_id, int(message_id))
+        source = await bot.get_messages(chat_id, message_id)
         media = is_media(source)
         if not media:
             await message.reply("File not found.")
