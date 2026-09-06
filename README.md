@@ -88,7 +88,6 @@ Important settings:
 | `SECRET_KEY` | At least 32 random characters; changing it signs users out and invalidates links |
 | `STREAM_TOKEN_TTL` | Link lifetime in seconds; default is six hours |
 | `COOKIE_SECURE` | Keep `true` behind HTTPS; use `false` only for local HTTP development |
-| `ALLOWED_TELEGRAM_USERS` | Telegram numeric user IDs allowed to request files through bot deep links |
 | `MULTI_TOKEN1...50` | Optional extra bot tokens used for streaming capacity |
 | `SITE_NAME` | Display name; defaults to `AkMovieVerse` |
 | `SITE_CREDIT` | Footer credit; defaults to `By AkMovieVerse` |

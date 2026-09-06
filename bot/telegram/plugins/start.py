@@ -69,9 +69,6 @@ async def start_command(bot: Client, message: Message):
     if shortcut is None:
         await message.reply(f"{Telegram.SITE_NAME} is online. Open your private web library to browse files.")
         return
-    if not message.from_user or message.from_user.id not in Telegram.ALLOWED_TELEGRAM_USERS:
-        await message.reply("This private file shortcut is not enabled for your Telegram account.")
-        return
     try:
         try:
             delivery_enabled = await db.get_variable("telegram_delivery_enabled")
