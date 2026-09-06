@@ -1,4 +1,4 @@
-from asyncio import sleep
+from asyncio import sleep, create_task
 from os.path import splitext
 
 from pyrogram import Client, filters
@@ -17,6 +17,16 @@ from bot.telegram import StreamBot
 
 
 db = Database()
+TELEGRAM_DELIVERY_DELETE_SECONDS = 120 * 60
+
+
+async def _delete_temporary_delivery(bot: Client, chat_id: int, message_id: int):
+    """Best-effort cleanup of a bot-delivered file after the access window."""
+    await sleep(TELEGRAM_DELIVERY_DELETE_SECONDS)
+    try:
+        await bot.delete_messages(chat_id, message_id)
+    except Exception as exc:
+        LOGGER.warning("Could not delete temporary Telegram delivery %s: %s", message_id, exc)
 
 
 async def authorized_channels() -> set[str]:
@@ -43,6 +53,15 @@ async def start_command(bot: Client, message: Message):
         await message.reply("This private file shortcut is not enabled for your Telegram account.")
         return
     try:
+        try:
+            delivery_enabled = await db.get_variable("telegram_delivery_enabled")
+            delivery_protected = await db.get_variable("telegram_delivery_protected")
+        except Exception as exc:
+            LOGGER.warning("Could not read Telegram delivery policy: %s", exc)
+            delivery_enabled = delivery_protected = None
+        if delivery_enabled is False:
+            await message.reply("Temporary Telegram delivery is currently disabled by the owner.")
+            return
         command = message.text.rsplit("_", 1)[-1]
         message_id, encoded_chat = command.split("-", 1)
         chat_id = -int(encoded_chat)
@@ -54,7 +73,12 @@ async def start_command(bot: Client, message: Message):
         if not media:
             await message.reply("File not found.")
             return
-        await message.reply_cached_media(file_id=media.file_id, caption=f"**{media.file_name or 'Telegram file'}**")
+        delivered = await message.reply_cached_media(
+            file_id=media.file_id,
+            caption=f"**{media.file_name or 'Telegram file'}**\n\nTemporary access: this message is deleted after about 120 minutes.",
+            protect_content=delivery_protected is not False,
+        )
+        create_task(_delete_temporary_delivery(bot, delivered.chat.id, delivered.id))
     except (TypeError, ValueError):
         await message.reply("Invalid file shortcut.")
 

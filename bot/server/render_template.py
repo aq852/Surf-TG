@@ -53,7 +53,7 @@ async def _ad_preferences():
     return defaults
 
 
-def _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download, secure_link_copy_enabled):
+def _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download, secure_link_copy_enabled, telegram_delivery_enabled, telegram_delivery_protected):
     return (html
         .replace("<!-- ManualAdsChecked -->", "checked" if preferences["manual_ads_enabled"] else "")
         .replace("<!-- ManualAdUrl -->", escape(str(preferences["manual_ad_url"] or ""), quote=True))
@@ -67,6 +67,8 @@ def _apply_admin_settings(html, preferences, downloads_enabled, hide_native_down
         .replace("<!-- DownloadsEnabled -->", "checked" if downloads_enabled is not False else "")
         .replace("<!-- HideNativeDownloadChecked -->", "checked" if hide_native_download else "")
         .replace("<!-- SecureLinkCopyChecked -->", "checked" if secure_link_copy_enabled is not False else "")
+        .replace("<!-- TelegramDeliveryChecked -->", "checked" if telegram_delivery_enabled is not False else "")
+        .replace("<!-- TelegramProtectionChecked -->", "checked" if telegram_delivery_protected is not False else "")
     )
 
 
@@ -91,7 +93,7 @@ async def _ad_slot(is_premium=False, placement="home"):
     return ""
 
 
-async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', analytics='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, channel_access='free', show_in_latest=True, premium_prompt=False, share_path='', share_enabled=True, latest_query=''):
+async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', analytics='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, telegram_delivery_enabled=True, channel_access='free', show_in_latest=True, premium_prompt=False, share_path='', share_enabled=True, latest_query=''):
     tpath = ospath.join('bot', 'server', 'template')
     if route == 'login':
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
@@ -146,12 +148,20 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             secure_link_copy_enabled = await db.get_variable("secure_link_copy_enabled")
         except Exception:
             secure_link_copy_enabled = None
+        try:
+            telegram_delivery_enabled = await db.get_variable("telegram_delivery_enabled")
+        except Exception:
+            telegram_delivery_enabled = None
+        try:
+            telegram_delivery_protected = await db.get_variable("telegram_delivery_protected")
+        except Exception:
+            telegram_delivery_protected = None
         async with aiopen(ospath.join(tpath, 'admin.html'), 'r', encoding='utf-8') as f:
             html = ((await f.read())
                 .replace("<!-- Accounts -->", accounts)
                 .replace("<!-- Analytics -->", analytics)
                 .replace("<!-- AuthChannels -->", escape(str(auth_channels), quote=True)))
-            html = _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download, secure_link_copy_enabled)
+        html = _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download, secure_link_copy_enabled, telegram_delivery_enabled, telegram_delivery_protected)
     elif route == 'playlist':
         async with aiopen(ospath.join(tpath, 'playlist.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Playlist -->", playlist).replace("<!-- Database -->", database).replace("<!-- Title -->", safe_title).replace("<!-- Parent_id -->", escape(str(id or ""), quote=True))
@@ -217,6 +227,10 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             html = re.sub(r'<!-- DOWNLOAD_START -->.*?<!-- DOWNLOAD_END -->', '', html, flags=re.DOTALL)
         else:
             html = html.replace('<!-- DOWNLOAD_START -->', '').replace('<!-- DOWNLOAD_END -->', '')
+        if not telegram_delivery_enabled:
+            html = re.sub(r'<!-- TELEGRAM_START -->.*?<!-- TELEGRAM_END -->', '', html, flags=re.DOTALL)
+        else:
+            html = html.replace('<!-- TELEGRAM_START -->', '').replace('<!-- TELEGRAM_END -->', '')
     placement = {"home": "home", "index": "channel", "playlist": "collection"}.get(route, "player")
     return _finish_page(html, theme, is_admin, await _ad_slot(is_premium or is_admin, placement), is_premium=is_premium, premium_prompt=premium_prompt, idle_timeout=route != 'login')
 

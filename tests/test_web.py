@@ -255,7 +255,10 @@ class WebSmokeTests(AioHTTPTestCase):
             )
         self.assertEqual(302, response.status)
         self.assertEqual("/admin#downloads", response.headers["Location"])
-        save.assert_awaited_once_with(downloads_enabled=False, hide_native_download=False, secure_link_copy_enabled=False)
+        save.assert_awaited_once_with(
+            downloads_enabled=False, hide_native_download=False, secure_link_copy_enabled=False,
+            telegram_delivery_enabled=False, telegram_delivery_protected=False,
+        )
 
     async def test_viewer_cannot_open_admin_dashboard(self):
         origin = str(self.server.make_url("/")).rstrip("/")
@@ -502,6 +505,8 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("Desktop poster URL", html)
         self.assertIn("Playback & sharing", html)
         self.assertIn("Allow Copy secure link button", html)
+        self.assertIn("Allow temporary Telegram delivery", html)
+        self.assertIn("Protect Telegram delivery from forwarding/saving", html)
 
     async def test_saved_premium_theme_is_rendered_before_javascript(self):
         values = {"theme": "royal"}

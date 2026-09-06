@@ -804,6 +804,8 @@ async def download_policy_route(request):
         downloads_enabled=data.get("downloads_enabled") == "yes",
         hide_native_download=data.get("hide_native_download") == "yes",
         secure_link_copy_enabled=data.get("secure_link_copy_enabled") == "yes",
+        telegram_delivery_enabled=data.get("telegram_delivery_enabled") == "yes",
+        telegram_delivery_protected=data.get("telegram_delivery_protected") == "yes",
     )
     raise web.HTTPFound('/admin#downloads')
 
@@ -1045,6 +1047,10 @@ async def stream_handler_watch(request: web.Request):
                 share_enabled = await db.get_variable("secure_link_copy_enabled")
             except Exception:
                 share_enabled = None
+            try:
+                telegram_delivery_enabled = await db.get_variable("telegram_delivery_enabled")
+            except Exception:
+                telegram_delivery_enabled = None
             share_enabled = share_enabled is not False
             downloadable = (bool(record.get("downloadable", True)) if record else True) and downloads_enabled is not False
             display_title = (record.get("display_title") or record.get("title")) if record else ""
@@ -1055,7 +1061,7 @@ async def stream_handler_watch(request: web.Request):
                     share_id, stream_token, datetime.fromtimestamp(claim.expires_at, timezone.utc),
                 )
                 share_path = f"/s/{share_id}"
-            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable, display_title=display_title, is_premium=account_tier(session) == "premium", hide_native_download=hide_native_download, share_path=share_path, share_enabled=share_enabled), content_type='text/html')
+            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable, display_title=display_title, is_premium=account_tier(session) == "premium", hide_native_download=hide_native_download, telegram_delivery_enabled=telegram_delivery_enabled is not False, share_path=share_path, share_enabled=share_enabled), content_type='text/html')
         except StreamTokenError as e:
             raise web.HTTPForbidden(text=str(e)) from e
         except FIleNotFound as e:
