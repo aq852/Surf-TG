@@ -53,7 +53,7 @@ async def _ad_preferences():
     return defaults
 
 
-def _apply_admin_settings(html, preferences, downloads_enabled):
+def _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download):
     return (html
         .replace("<!-- ManualAdsChecked -->", "checked" if preferences["manual_ads_enabled"] else "")
         .replace("<!-- ManualAdUrl -->", escape(str(preferences["manual_ad_url"] or ""), quote=True))
@@ -65,6 +65,7 @@ def _apply_admin_settings(html, preferences, downloads_enabled):
         .replace("<!-- ManualCollectionSelected -->", "selected" if preferences["manual_ad_placement"] == "collection" else "")
         .replace("<!-- ManualPlayerSelected -->", "selected" if preferences["manual_ad_placement"] == "player" else "")
         .replace("<!-- DownloadsEnabled -->", "checked" if downloads_enabled is not False else "")
+        .replace("<!-- HideNativeDownloadChecked -->", "checked" if hide_native_download else "")
     )
 
 
@@ -83,13 +84,13 @@ async def _ad_slot(is_premium=False, placement="home"):
         return (
             '<aside class="ad-slot sponsor-ad" data-sponsor-ad><span class="ad-label">Sponsored</span>'
             f'<a href="{escape(target, quote=True)}" target="_blank" rel="nofollow sponsored noopener">'
-            f'<picture>{mobile_source}<img src="{escape(desktop_image, quote=True)}" alt="Sponsored" data-sponsor-image></picture>'
+            f'<picture>{mobile_source}<img src="{escape(desktop_image, quote=True)}" alt="Sponsored" referrerpolicy="no-referrer" data-sponsor-image></picture>'
             '</a></aside>'
         )
     return ""
 
 
-async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', accounts='', downloadable=True, account_role='', display_title='', is_premium=False):
+async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', accounts='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False):
     tpath = ospath.join('bot', 'server', 'template')
     if route == 'login':
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
@@ -135,11 +136,15 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             downloads_enabled = await db.get_variable("downloads_enabled")
         except Exception:
             downloads_enabled = None
+        try:
+            hide_native_download = bool(await db.get_variable("hide_native_download"))
+        except Exception:
+            hide_native_download = False
         async with aiopen(ospath.join(tpath, 'admin.html'), 'r', encoding='utf-8') as f:
             html = ((await f.read())
                 .replace("<!-- Accounts -->", accounts)
                 .replace("<!-- AuthChannels -->", escape(str(auth_channels), quote=True)))
-            html = _apply_admin_settings(html, preferences, downloads_enabled)
+            html = _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download)
     elif route == 'playlist':
         async with aiopen(ospath.join(tpath, 'playlist.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Playlist -->", playlist).replace("<!-- Database -->", database).replace("<!-- Title -->", safe_title).replace("<!-- Parent_id -->", escape(str(id or ""), quote=True))
@@ -169,7 +174,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
         if tag == 'video':
             async with aiopen(ospath.join(tpath, 'video.html'), encoding='utf-8') as r:
                 poster = f"/api/thumb/{chat_id}?id={id}"
-                html = (await r.read()).replace('<!-- Filename -->', filename).replace('<!-- Poster -->', poster).replace('<!-- Size -->', size).replace('<!-- Username -->', StreamBot.me.username)
+                html = (await r.read()).replace('<!-- Filename -->', filename).replace('<!-- Poster -->', poster).replace('<!-- Size -->', size).replace('<!-- Username -->', StreamBot.me.username).replace('<!-- NativeDownloadControl -->', 'controlsList="nodownload noremoteplayback"' if hide_native_download else '')
         else:
             async with aiopen(ospath.join(tpath, 'dl.html'), encoding='utf-8') as r:
                 html = (await r.read()).replace('<!-- Filename -->', filename).replace('<!-- Size -->', size).replace('<!-- Username -->', StreamBot.me.username)

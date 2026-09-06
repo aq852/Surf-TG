@@ -30,6 +30,7 @@ class UiAssetTests(unittest.TestCase):
         self.assertIn("mobile-nav-toggle", script)
         self.assertIn("data-sponsor-image", script)
         self.assertIn("data-sponsor-ad", script)
+        self.assertIn("NativeDownloadControl", video)
         self.assertIn(".nav-actions.mobile-open", stylesheet)
         self.assertIn("akmovieverse-vlc-playlist.m3u", video)
 

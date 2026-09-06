@@ -217,7 +217,7 @@ class WebSmokeTests(AioHTTPTestCase):
             )
         self.assertEqual(302, response.status)
         self.assertEqual("/admin#downloads", response.headers["Location"])
-        save.assert_awaited_once_with(downloads_enabled=False)
+        save.assert_awaited_once_with(downloads_enabled=False, hide_native_download=False)
 
     async def test_viewer_cannot_open_admin_dashboard(self):
         origin = str(self.server.make_url("/")).rstrip("/")

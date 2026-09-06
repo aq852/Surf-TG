@@ -595,7 +595,10 @@ async def download_policy_route(request):
     if not is_admin(session):
         raise web.HTTPForbidden(text="Administrator access required")
     data = await request.post()
-    await db.set_config_values(downloads_enabled=data.get("downloads_enabled") == "yes")
+    await db.set_config_values(
+        downloads_enabled=data.get("downloads_enabled") == "yes",
+        hide_native_download=data.get("hide_native_download") == "yes",
+    )
     raise web.HTTPFound('/admin#downloads')
 
 
@@ -803,9 +806,13 @@ async def stream_handler_watch(request: web.Request):
                 downloads_enabled = await db.get_variable("downloads_enabled")
             except Exception:
                 downloads_enabled = None
+            try:
+                hide_native_download = bool(await db.get_variable("hide_native_download"))
+            except Exception:
+                hide_native_download = False
             downloadable = (bool(record.get("downloadable", True)) if record else True) and downloads_enabled is not False
             display_title = (record.get("display_title") or record.get("title")) if record else ""
-            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable, display_title=display_title, is_premium=account_tier(session) == "premium"), content_type='text/html')
+            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable, display_title=display_title, is_premium=account_tier(session) == "premium", hide_native_download=hide_native_download), content_type='text/html')
         except StreamTokenError as e:
             raise web.HTTPForbidden(text=str(e)) from e
         except FIleNotFound as e:
