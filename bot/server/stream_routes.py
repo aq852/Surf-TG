@@ -968,12 +968,13 @@ async def media_streamer(request: web.Request, chat_id: int, id: int, stream_tok
     if claim.chat_id != chat_id or claim.message_id != id:
         raise StreamTokenError("token does not match media")
     session = await get_session(request)
-    if not session.get("user"):
+    external_vlc = claim.scope == "vlc"
+    if not session.get("user") and not external_vlc:
         raise web.HTTPUnauthorized(text="Login required")
-    if (await _channel_policy(chat_id))["access"] == "premium" and not _premium_entitled(session):
+    if (await _channel_policy(chat_id))["access"] == "premium" and not (external_vlc or _premium_entitled(session)):
         raise web.HTTPForbidden(text="Premium membership required")
     record = await db.get_tgfile(chat_id, id)
-    if record and record.get("access", "free") == "premium" and not _premium_entitled(session):
+    if record and record.get("access", "free") == "premium" and not (external_vlc or _premium_entitled(session)):
         raise web.HTTPForbidden(text="Premium membership required")
     wants_download = request.query.get("download") == "1"
     if wants_download and claim.scope != "download":

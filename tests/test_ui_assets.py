@@ -31,6 +31,8 @@ class UiAssetTests(unittest.TestCase):
         self.assertIn("data-sponsor-image", script)
         self.assertIn("data-sponsor-ad", script)
         self.assertIn("NativeDownloadControl", video)
+        self.assertIn("VlcToken", video)
+        self.assertIn("vlcStream", video)
         index = (ROOT / "bot/server/template/index.html").read_text(encoding="utf-8")
         self.assertIn("?v=<!-- CoverVersion -->", index)
         self.assertIn(".nav-actions.mobile-open", stylesheet)

@@ -190,7 +190,13 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
         download_token = create_stream_token(
             Telegram.SECRET_KEY, int(chat_id), int(id), ttl=Telegram.STREAM_TOKEN_TTL, scope="download"
         ) if downloadable else ""
+        # Desktop VLC cannot carry this site's browser session cookie. Give the
+        # generated M3U a separate, signed, short-lived stream-only token.
+        vlc_token = create_stream_token(
+            Telegram.SECRET_KEY, int(chat_id), int(id), ttl=Telegram.STREAM_TOKEN_TTL, scope="vlc"
+        )
         html = html.replace("<!-- DownloadToken -->", download_token)
+        html = html.replace("<!-- VlcToken -->", vlc_token)
         html = html.replace("<!-- SharePath -->", escape(share_path, quote=True))
         if not share_enabled:
             html = re.sub(r'<!-- COPY_START -->.*?<!-- COPY_END -->', '', html, flags=re.DOTALL)
