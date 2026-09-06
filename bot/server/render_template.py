@@ -91,7 +91,7 @@ async def _ad_slot(is_premium=False, placement="home"):
     return ""
 
 
-async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, channel_access='free', show_in_latest=True, premium_prompt=False, share_path='', share_enabled=True):
+async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', analytics='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, channel_access='free', show_in_latest=True, premium_prompt=False, share_path='', share_enabled=True, latest_query=''):
     tpath = ospath.join('bot', 'server', 'template')
     if route == 'login':
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
@@ -119,6 +119,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
                 .replace("<!-- Print -->", html)
                 .replace("<!-- Playlist -->", playlist)
                 .replace("<!-- Latest -->", database)
+                .replace("<!-- LatestQuery -->", escape(str(latest_query), quote=True))
                 .replace("<!-- ChannelsActive -->", "active" if view == "channels" else "")
                 .replace("<!-- LatestActive -->", "active" if view == "latest" else "")
                 .replace("<!-- ChannelsHidden -->", "" if view == "channels" else "hidden")
@@ -148,6 +149,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
         async with aiopen(ospath.join(tpath, 'admin.html'), 'r', encoding='utf-8') as f:
             html = ((await f.read())
                 .replace("<!-- Accounts -->", accounts)
+                .replace("<!-- Analytics -->", analytics)
                 .replace("<!-- AuthChannels -->", escape(str(auth_channels), quote=True)))
             html = _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download, secure_link_copy_enabled)
     elif route == 'playlist':

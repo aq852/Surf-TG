@@ -1,6 +1,6 @@
 from pymongo import DESCENDING, MongoClient, UpdateOne
 from bson import ObjectId
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from bot.config import Telegram
 import re
 import asyncio
@@ -134,13 +134,71 @@ class Database:
             'file_id', DESCENDING).skip(offset).limit(per_page)))
 
     async def list_latest_tgfiles(self, chat_ids, page=1, per_page=48):
-        ids = []
-        for chat_id in chat_ids:
-            ids.extend([str(chat_id), int(chat_id)])
+        ids = self._mixed_chat_ids(chat_ids)
         offset = (int(page) - 1) * per_page
         return await asyncio.to_thread(
             lambda: list(self.files.find({"chat_id": {"$in": ids}}).sort("_id", DESCENDING).skip(offset).limit(per_page))
         )
+
+    @staticmethod
+    def _mixed_chat_ids(chat_ids):
+        ids = []
+        for chat_id in chat_ids:
+            ids.extend([str(chat_id), int(chat_id)])
+        return ids
+
+    async def search_latest_tgfiles(self, chat_ids, query, page=1, per_page=200):
+        """Search only the unified Latest uploads feed, never old collections."""
+        words = re.findall(r'\w+', str(query or '').lower())
+        if not words:
+            return await self.list_latest_tgfiles(chat_ids, page=page, per_page=per_page)
+        regex_pattern = '.*'.join(f'(?=.*{re.escape(word)})' for word in words)
+        regex_query = {'$regex': f'.*{regex_pattern}.*', '$options': 'i'}
+        offset = (int(page) - 1) * per_page
+        filter_query = {
+            'chat_id': {'$in': self._mixed_chat_ids(chat_ids)},
+            '$or': [{'title': regex_query}, {'display_title': regex_query}],
+        }
+        return await asyncio.to_thread(
+            lambda: list(self.files.find(filter_query).sort('_id', DESCENDING).skip(offset).limit(per_page))
+        )
+
+    async def get_admin_analytics(self, chat_ids):
+        """Return small, admin-only library totals without exposing file data."""
+        return await asyncio.to_thread(self._get_admin_analytics_sync, list(chat_ids))
+
+    def _get_admin_analytics_sync(self, chat_ids):
+        now = datetime.now(timezone.utc)
+        file_query = {'chat_id': {'$in': self._mixed_chat_ids(chat_ids)}}
+        users = list(self.users.find({}, {'password_hash': 0}))
+        active_users = [user for user in users if user.get('active', True)]
+        premium_users = [user for user in active_users if user.get('tier', 'free') == 'premium']
+        expiring_soon = 0
+        for user in premium_users:
+            expires_at = user.get('expires_at')
+            if expires_at:
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                if now <= expires_at <= now + timedelta(days=7):
+                    expiring_soon += 1
+        self.premium_sessions.delete_many({'expires_at': {'$lte': now}})
+        by_channel = list(self.files.aggregate([
+            {'$match': file_query},
+            {'$group': {'_id': '$chat_id', 'files': {'$sum': 1}}},
+            {'$sort': {'files': -1}},
+        ]))
+        return {
+            'channels': len(chat_ids),
+            'indexed_files': self.files.count_documents(file_query),
+            'free_users': sum(1 for user in active_users if user.get('tier', 'free') != 'premium'),
+            'premium_users': len(premium_users),
+            'active_premium_sessions': self.premium_sessions.count_documents({}),
+            'expiring_soon': expiring_soon,
+            'by_channel': [
+                {'chat_id': str(item['_id']), 'files': int(item['files'])}
+                for item in by_channel
+            ],
+        }
 
     async def get_info(self, id):
         query = {'_id': ObjectId(id)}

@@ -94,6 +94,43 @@ async def _users_html():
     return "".join(rows) or '<p class="muted">No individual accounts yet.</p>'
 
 
+async def _analytics_html():
+    """Build the small operational summary shown only to the administrator."""
+    channel_ids = await get_authorized_chat_ids()
+    summary = await db.get_admin_analytics(channel_ids)
+    names = {str(channel_id): str(channel_id).removeprefix("-100") for channel_id in channel_ids}
+    try:
+        for channel in await get_chats():
+            names[str(channel["chat-id"])] = str(channel.get("title") or names.get(str(channel["chat-id"]), "Channel"))
+    except Exception as exc:
+        logging.warning("Analytics channel-name lookup failed: %s", exc)
+
+    metrics = (
+        ("Authorized channels", summary["channels"]),
+        ("Indexed files", summary["indexed_files"]),
+        ("Free accounts", summary["free_users"]),
+        ("Premium accounts", summary["premium_users"]),
+        ("Active premium devices", summary["active_premium_sessions"]),
+        ("Premium expiring in 7 days", summary["expiring_soon"]),
+    )
+    cards = "".join(
+        f'<div class="metric-card"><span>{escape(label)}</span><strong>{value}</strong></div>'
+        for label, value in metrics
+    )
+    channel_rows = "".join(
+        '<li><span>{}</span><strong>{} files</strong></li>'.format(
+            escape(names.get(row["chat_id"], row["chat_id"])), row["files"]
+        )
+        for row in summary["by_channel"]
+    ) or '<li><span class="muted">No indexed files yet.</span></li>'
+    return (
+        f'<section class="admin-metrics">{cards}</section>'
+        '<section class="panel analytics-channels"><div class="section-head"><h2>Files by channel</h2>'
+        '<span class="muted">Current indexed library</span></div>'
+        f'<ul class="analytics-list">{channel_rows}</ul></section>'
+    )
+
+
 def _parse_session_limit(value) -> int:
     try:
         limit = int(value)
@@ -671,9 +708,11 @@ async def admin_route(request):
     if not is_admin(session):
         raise web.HTTPForbidden(text="Administrator access required")
     accounts = await _users_html()
+    analytics = await _analytics_html()
     return web.Response(
         text=await render_page(
-            None, None, route="admin", accounts=accounts, is_admin=True, account_role="Administrator"
+            None, None, route="admin", accounts=accounts, analytics=analytics,
+            is_admin=True, account_role="Administrator"
         ),
         content_type="text/html",
     )
@@ -688,7 +727,11 @@ async def home_route(request):
             channels = await get_chats()
             playlists = await db.get_Dbfolder()
             authorized_ids = await get_authorized_chat_ids()
-            latest = await db.list_latest_tgfiles(authorized_ids, per_page=200)
+            latest_query = str(request.query.get("q", "")).strip()
+            latest = await (
+                db.search_latest_tgfiles(authorized_ids, latest_query, per_page=200)
+                if latest_query else db.list_latest_tgfiles(authorized_ids, per_page=200)
+            )
             admin = is_admin(session)
             role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
             tier = account_tier(session)
@@ -711,7 +754,7 @@ async def home_route(request):
                 for post in latest
             ])
             accounts = await _users_html() if admin else ""
-            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, database=latest_html, accounts=accounts, is_admin=admin, account_role=role_label, display_title=request.query.get("view", "latest"), is_premium=tier == "premium", premium_prompt=request.query.get("premium") == "1"), content_type='text/html')
+            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, database=latest_html, accounts=accounts, is_admin=admin, account_role=role_label, display_title=request.query.get("view", "latest"), is_premium=tier == "premium", premium_prompt=request.query.get("premium") == "1", latest_query=latest_query), content_type='text/html')
         except web.HTTPException:
             raise
         except Exception as e:
