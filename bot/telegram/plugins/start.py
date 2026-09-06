@@ -88,14 +88,21 @@ async def start_command(bot: Client, message: Message):
         if not media:
             await message.reply("File not found.")
             return
-        delivered = await message.reply_cached_media(
+        # PyroFork's reply_cached_media does not accept protect_content, while
+        # send_cached_media does. Use the latter so the admin protection toggle
+        # works instead of raising a TypeError on every protected delivery.
+        delivered = await bot.send_cached_media(
+            chat_id=message.chat.id,
             file_id=media.file_id,
             caption=f"**{media.file_name or 'Telegram file'}**\n\nTemporary access: this message is deleted after about 120 minutes.",
             protect_content=delivery_protected is not False,
+            reply_to_message_id=message.id,
         )
-        create_task(_delete_temporary_delivery(bot, delivered.chat.id, delivered.id))
-    except (TypeError, ValueError):
-        await message.reply("Invalid file shortcut.")
+        if delivered:
+            create_task(_delete_temporary_delivery(bot, delivered.chat.id, delivered.id))
+    except Exception:
+        LOGGER.exception("Temporary Telegram delivery failed for shortcut %s", shortcut)
+        await message.reply("The file could not be sent right now. Please try again shortly.")
 
 
 @StreamBot.on_message(filters.command("index"))
