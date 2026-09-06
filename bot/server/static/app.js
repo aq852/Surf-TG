@@ -47,6 +47,21 @@ document.addEventListener("DOMContentLoaded",()=>{
   const setPage=(id,next)=>{const a=document.getElementById(id);if(!a)return;if(next<1){a.classList.add("disabled");return}const target=new URL(url);target.searchParams.set("page",next);a.href=target};
   setPage("prevButton",page-1);setPage("nextButton",page+1);
   document.querySelectorAll("[data-copy]").forEach(button=>button.addEventListener("click",async()=>{await navigator.clipboard.writeText(button.dataset.copy);button.textContent="Copied";setTimeout(()=>button.textContent="Copy link",1200)}));
+  const premiumModal=document.querySelector('[data-premium-modal]');
+  const closePremium=()=>{if(premiumModal)premiumModal.hidden=true};
+  document.querySelectorAll('[data-premium-required]').forEach(button=>button.addEventListener('click',()=>{if(premiumModal)premiumModal.hidden=false}));
+  document.querySelectorAll('[data-premium-close]').forEach(button=>button.addEventListener('click',closePremium));
+  premiumModal?.addEventListener('click',event=>{if(event.target===premiumModal)closePremium()});
+  if(body.dataset.showPremiumPrompt==='1'&&premiumModal)premiumModal.hidden=false;
+  const timeoutSeconds=Number(body.dataset.idleTimeout||0);
+  if(timeoutSeconds>0){
+    let idleTimer;
+    const signOut=async()=>{try{await fetch('/logout',{method:'POST',credentials:'same-origin'})}finally{location.assign('/login')}};
+    const resetIdle=()=>{clearTimeout(idleTimer);idleTimer=setTimeout(signOut,timeoutSeconds*1000)};
+    ['pointerdown','keydown','touchstart','scroll'].forEach(event=>addEventListener(event,resetIdle,{passive:true}));
+    document.querySelectorAll('video').forEach(video=>['play','timeupdate'].forEach(event=>video.addEventListener(event,resetIdle)));
+    resetIdle();
+  }
 });
 document.addEventListener('error',event=>{const image=event.target;if(image?.matches?.('[data-sponsor-image]')){console.warn('Sponsor banner hidden because its poster could not be loaded. Use a permanent direct HTTPS image URL.');image.closest('[data-sponsor-ad]')?.remove()}},true);
 function checkSendButton(){const chosen=[...document.querySelectorAll('#selectCheckbox:checked')];const button=document.getElementById('sendButton');if(button)button.disabled=!chosen.length}

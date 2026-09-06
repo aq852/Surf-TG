@@ -255,7 +255,7 @@ class WebSmokeTests(AioHTTPTestCase):
             )
         self.assertEqual(302, response.status)
         self.assertEqual("/admin#downloads", response.headers["Location"])
-        save.assert_awaited_once_with(downloads_enabled=False, hide_native_download=False)
+        save.assert_awaited_once_with(downloads_enabled=False, hide_native_download=False, secure_link_copy_enabled=False)
 
     async def test_viewer_cannot_open_admin_dashboard(self):
         origin = str(self.server.make_url("/")).rstrip("/")
@@ -466,7 +466,8 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("Graphite Luxe", html)
         self.assertIn("Sponsor banner", html)
         self.assertIn("Desktop poster URL", html)
-        self.assertIn("Global downloads", html)
+        self.assertIn("Playback & sharing", html)
+        self.assertIn("Allow Copy secure link button", html)
 
     async def test_saved_premium_theme_is_rendered_before_javascript(self):
         values = {"theme": "royal"}
@@ -478,7 +479,7 @@ class WebSmokeTests(AioHTTPTestCase):
                 None, None, route="home", html="", playlist="", is_admin=False
             )
         self.assertIn('<html data-theme="royal"', html)
-        self.assertIn('<body data-theme="royal" data-base-theme="royal">', html)
+        self.assertIn('<body data-theme="royal" data-base-theme="royal" data-idle-timeout="1800">', html)
 
     def test_channel_cover_magic_detection(self):
         self.assertEqual("image/png", _image_type(b"\x89PNG\r\n\x1a\nrest"))

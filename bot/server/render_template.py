@@ -53,7 +53,7 @@ async def _ad_preferences():
     return defaults
 
 
-def _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download):
+def _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download, secure_link_copy_enabled):
     return (html
         .replace("<!-- ManualAdsChecked -->", "checked" if preferences["manual_ads_enabled"] else "")
         .replace("<!-- ManualAdUrl -->", escape(str(preferences["manual_ad_url"] or ""), quote=True))
@@ -66,6 +66,7 @@ def _apply_admin_settings(html, preferences, downloads_enabled, hide_native_down
         .replace("<!-- ManualPlayerSelected -->", "selected" if preferences["manual_ad_placement"] == "player" else "")
         .replace("<!-- DownloadsEnabled -->", "checked" if downloads_enabled is not False else "")
         .replace("<!-- HideNativeDownloadChecked -->", "checked" if hide_native_download else "")
+        .replace("<!-- SecureLinkCopyChecked -->", "checked" if secure_link_copy_enabled is not False else "")
     )
 
 
@@ -90,7 +91,7 @@ async def _ad_slot(is_premium=False, placement="home"):
     return ""
 
 
-async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False):
+async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, channel_access='free', show_in_latest=True, premium_prompt=False, share_path='', share_enabled=True):
     tpath = ospath.join('bot', 'server', 'template')
     if route == 'login':
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
@@ -113,7 +114,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
         if not auth_channels:
             auth_channels = ", ".join(Telegram.AUTH_CHANNEL)
         async with aiopen(ospath.join(tpath, 'home.html'), 'r', encoding='utf-8') as f:
-            view = display_title if display_title in {"channels", "latest"} else "channels"
+            view = display_title if display_title in {"channels", "latest"} else "latest"
             html = ((await f.read())
                 .replace("<!-- Print -->", html)
                 .replace("<!-- Playlist -->", playlist)
@@ -140,17 +141,25 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             hide_native_download = bool(await db.get_variable("hide_native_download"))
         except Exception:
             hide_native_download = False
+        try:
+            secure_link_copy_enabled = await db.get_variable("secure_link_copy_enabled")
+        except Exception:
+            secure_link_copy_enabled = None
         async with aiopen(ospath.join(tpath, 'admin.html'), 'r', encoding='utf-8') as f:
             html = ((await f.read())
                 .replace("<!-- Accounts -->", accounts)
                 .replace("<!-- AuthChannels -->", escape(str(auth_channels), quote=True)))
-            html = _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download)
+            html = _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download, secure_link_copy_enabled)
     elif route == 'playlist':
         async with aiopen(ospath.join(tpath, 'playlist.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Playlist -->", playlist).replace("<!-- Database -->", database).replace("<!-- Title -->", safe_title).replace("<!-- Parent_id -->", escape(str(id or ""), quote=True))
     elif route == 'index':
         async with aiopen(ospath.join(tpath, 'index.html'), 'r', encoding='utf-8') as f:
-            html = (await f.read()).replace("<!-- Print -->", html).replace("<!-- Title -->", safe_title).replace("<!-- Chat_id -->", escape(str(chat_id), quote=True)).replace("<!-- ChannelPath -->", escape(str(channel_path), quote=True)).replace("<!-- CoverVersion -->", escape(str(cover_version), quote=True))
+            html = ((await f.read()).replace("<!-- Print -->", html).replace("<!-- Title -->", safe_title)
+                .replace("<!-- Chat_id -->", escape(str(chat_id), quote=True)).replace("<!-- ChannelPath -->", escape(str(channel_path), quote=True))
+                .replace("<!-- CoverVersion -->", escape(str(cover_version), quote=True))
+                .replace("<!-- ChannelPremiumSelected -->", " selected" if channel_access == "premium" else "")
+                .replace("<!-- ShowInLatestChecked -->", " checked" if show_in_latest else ""))
     elif route == 'profile':
         async with aiopen(ospath.join(tpath, 'profile.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Profile -->", html)
@@ -182,27 +191,46 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             Telegram.SECRET_KEY, int(chat_id), int(id), ttl=Telegram.STREAM_TOKEN_TTL, scope="download"
         ) if downloadable else ""
         html = html.replace("<!-- DownloadToken -->", download_token)
+        html = html.replace("<!-- SharePath -->", escape(share_path, quote=True))
+        if not share_enabled:
+            html = re.sub(r'<!-- COPY_START -->.*?<!-- COPY_END -->', '', html, flags=re.DOTALL)
+        else:
+            html = html.replace('<!-- COPY_START -->', '').replace('<!-- COPY_END -->', '')
         html = html.replace("<!-- FilenameJS -->", json.dumps(raw_filename))
         if not downloadable:
             html = re.sub(r'<!-- DOWNLOAD_START -->.*?<!-- DOWNLOAD_END -->', '', html, flags=re.DOTALL)
         else:
             html = html.replace('<!-- DOWNLOAD_START -->', '').replace('<!-- DOWNLOAD_END -->', '')
     placement = {"home": "home", "index": "channel", "playlist": "collection"}.get(route, "player")
-    return _finish_page(html, theme, is_admin, await _ad_slot(is_premium or is_admin, placement))
+    return _finish_page(html, theme, is_admin, await _ad_slot(is_premium or is_admin, placement), is_premium=is_premium, premium_prompt=premium_prompt, idle_timeout=route != 'login')
 
 
-def _finish_page(html, theme, is_admin, ad_slot):
+def _finish_page(html, theme, is_admin, ad_slot, *, is_premium=False, premium_prompt=False, idle_timeout=False):
     safe_name = escape(Telegram.SITE_NAME)
     safe_credit = escape(Telegram.SITE_CREDIT)
+    body_options = " data-idle-timeout=\"1800\"" if idle_timeout else ""
+    if premium_prompt:
+        body_options += " data-show-premium-prompt=\"1\""
+    premium_modal = ""
+    if not is_admin and not is_premium:
+        premium_modal = (
+            '<div class="premium-modal" data-premium-modal hidden role="dialog" aria-modal="true" aria-labelledby="premiumTitle">'
+            '<div class="premium-modal-card"><button class="modal-close" type="button" data-premium-close aria-label="Close">×</button>'
+            '<div class="eyebrow">Premium content</div><h2 id="premiumTitle">Unlock this content</h2>'
+            '<p class="muted">This channel or video is available for Premium members only. Contact the owner to buy Premium access.</p>'
+            f'<div class="actions"><a class="btn btn-primary" href="https://t.me/{escape(Telegram.SUPPORT_USERNAME, quote=True)}" target="_blank" rel="noopener">Contact @{escape(Telegram.SUPPORT_USERNAME)}</a>'
+            '<button class="btn" type="button" data-premium-close>Not now</button></div></div></div>'
+        )
     return (html
         # Versioned local assets ensure phones do not keep an old responsive
         # stylesheet/script after a Koyeb deployment.
-        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.1.2"')
-        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.1.2"')
+        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.2.0"')
+        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.2.0"')
         .replace("<!-- Theme -->", theme)
         .replace("<!-- BrandName -->", safe_name)
         .replace("<!-- SiteCredit -->", safe_credit)
         .replace("<!-- AdSlot -->", ad_slot)
+        .replace('</body>', premium_modal + '</body>')
         .replace("<html ", f'<html data-theme="{theme}" ')
-        .replace("<body>", f'<body data-theme="{theme}" data-base-theme="{theme}">')
+        .replace("<body>", f'<body data-theme="{theme}" data-base-theme="{theme}"{body_options}>')
     )

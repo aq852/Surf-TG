@@ -14,6 +14,9 @@ from bot.helper.accounts import premium_session_is_active
 from pathlib import Path
 
 
+IDLE_TIMEOUT_SECONDS = 30 * 60
+
+
 @web.middleware
 async def browser_security(request, handler):
     if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
@@ -53,6 +56,15 @@ async def account_expiry(request, handler):
             if request.method == "GET" and request.path != "/login":
                 raise web.HTTPFound("/login")
             raise web.HTTPUnauthorized(text="This premium account was signed in on another device")
+    if session.get("user") and request.path != "/logout":
+        now = time.time()
+        last_activity = float(session.get("last_activity", now))
+        if now - last_activity >= IDLE_TIMEOUT_SECONDS:
+            session.clear()
+            if request.method == "GET" and request.path != "/login":
+                raise web.HTTPFound("/login")
+            raise web.HTTPUnauthorized(text="Signed out after 30 minutes of inactivity")
+        session["last_activity"] = now
     expires_at = session.get("expires_at")
     if session.get("user") and expires_at is not None and float(expires_at) <= time.time():
         session.clear()

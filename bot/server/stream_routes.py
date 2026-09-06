@@ -161,6 +161,18 @@ async def require_authorized_chat(chat_id: int):
         raise web.HTTPForbidden(text="Channel is not authorized")
 
 
+async def _channel_policy(chat_id: int):
+    setting = await db.get_channel_settings(chat_id)
+    return {
+        "access": setting.get("access", "free"),
+        "show_in_latest": setting.get("show_in_latest", True) is not False,
+    }
+
+
+def _premium_entitled(session) -> bool:
+    return is_admin(session) or account_tier(session) == "premium"
+
+
 async def _channel_path(chat_id: int, title: str | None = None) -> str:
     if title is None:
         title = (await StreamBot.get_chat(int(chat_id))).title
@@ -555,6 +567,21 @@ async def channel_cover_route(request):
     raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}?cover={int(time.time())}')
 
 
+@routes.post('/channel/settings')
+async def channel_settings_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    chat_id = public_chat_id(str(data.get("chat_id", "")))
+    await require_authorized_chat(chat_id)
+    access = str(data.get("access", "free"))
+    if access not in {"free", "premium"}:
+        raise web.HTTPBadRequest(text="Invalid channel access")
+    await db.update_channel_settings(chat_id, access, data.get("show_in_latest") == "yes")
+    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
+
+
 @routes.get('/api/channel-cover/{chat_id}')
 async def channel_cover_api(request):
     session = await get_session(request)
@@ -633,6 +660,7 @@ async def download_policy_route(request):
     await db.set_config_values(
         downloads_enabled=data.get("downloads_enabled") == "yes",
         hide_native_download=data.get("hide_native_download") == "yes",
+        secure_link_copy_enabled=data.get("secure_link_copy_enabled") == "yes",
     )
     raise web.HTTPFound('/admin#downloads')
 
@@ -659,18 +687,31 @@ async def home_route(request):
         try:
             channels = await get_chats()
             playlists = await db.get_Dbfolder()
-            latest = await db.list_latest_tgfiles(await get_authorized_chat_ids())
+            authorized_ids = await get_authorized_chat_ids()
+            latest = await db.list_latest_tgfiles(authorized_ids, per_page=200)
             admin = is_admin(session)
             role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
-            phtml = await posts_chat(channels)
             tier = account_tier(session)
+            try:
+                channel_settings = await db.get_channel_settings_map(authorized_ids)
+            except Exception:
+                channel_settings = {}
+            phtml = await posts_chat(channels, channel_settings, is_admin=admin, user_tier=tier)
             dhtml = await post_playlist(playlists, is_admin=admin, user_tier=tier)
+            latest = [
+                post for post in latest
+                if channel_settings.get(str(post["chat_id"]), {}).get("show_in_latest", True) is not False
+                and (admin or tier == "premium" or (
+                    post.get("access", "free") != "premium"
+                    and channel_settings.get(str(post["chat_id"]), {}).get("access", "free") != "premium"
+                ))
+            ][:48]
             latest_html = ''.join([
                 await posts_file([post], int(post["chat_id"]), is_admin=admin, user_tier=tier)
                 for post in latest
             ])
             accounts = await _users_html() if admin else ""
-            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, database=latest_html, accounts=accounts, is_admin=admin, account_role=role_label, display_title=request.query.get("view", "channels"), is_premium=tier == "premium"), content_type='text/html')
+            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, database=latest_html, accounts=accounts, is_admin=admin, account_role=role_label, display_title=request.query.get("view", "latest"), is_premium=tier == "premium", premium_prompt=request.query.get("premium") == "1"), content_type='text/html')
         except web.HTTPException:
             raise
         except Exception as e:
@@ -743,6 +784,9 @@ async def _render_channel(request, chat_id: int, chat_title: str, query: str | N
         session['redirect_url'] = request.path_qs
         raise web.HTTPFound('/login')
     await require_authorized_chat(chat_id)
+    policy = await _channel_policy(chat_id)
+    if policy["access"] == "premium" and not _premium_entitled(session):
+        raise web.HTTPFound('/?premium=1')
     page = request.query.get('page', '1')
     admin = is_admin(session)
     tier = account_tier(session)
@@ -756,6 +800,7 @@ async def _render_channel(request, chat_id: int, chat_title: str, query: str | N
                 None, None, route='index', html=phtml, msg=title,
                 chat_id=str(chat_id).removeprefix("-100"), channel_path=channel_path(chat_id, chat_title),
                 cover_version=request.query.get("cover", ""), is_admin=admin, account_role=role_label, is_premium=tier == "premium",
+                channel_access=policy["access"], show_in_latest=policy["show_in_latest"],
             ), content_type='text/html'
         )
     except web.HTTPException:
@@ -829,6 +874,8 @@ async def stream_handler_watch(request: web.Request):
         try:
             chat_id = public_chat_id(request.match_info['chat_id'])
             await require_authorized_chat(chat_id)
+            if (await _channel_policy(chat_id))["access"] == "premium" and not _premium_entitled(session):
+                raise web.HTTPForbidden(text="Premium membership required")
             message_id = request.query.get('id')
             stream_token = request.query.get('token', '')
             claim = verify_stream_token(Telegram.SECRET_KEY, stream_token)
@@ -845,9 +892,21 @@ async def stream_handler_watch(request: web.Request):
                 hide_native_download = bool(await db.get_variable("hide_native_download"))
             except Exception:
                 hide_native_download = False
+            try:
+                share_enabled = await db.get_variable("secure_link_copy_enabled")
+            except Exception:
+                share_enabled = None
+            share_enabled = share_enabled is not False
             downloadable = (bool(record.get("downloadable", True)) if record else True) and downloads_enabled is not False
             display_title = (record.get("display_title") or record.get("title")) if record else ""
-            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable, display_title=display_title, is_premium=account_tier(session) == "premium", hide_native_download=hide_native_download), content_type='text/html')
+            share_path = ""
+            if share_enabled:
+                share_id = secrets.token_urlsafe(9)
+                await db.create_share_link(
+                    share_id, stream_token, datetime.fromtimestamp(claim.expires_at, timezone.utc),
+                )
+                share_path = f"/s/{share_id}"
+            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable, display_title=display_title, is_premium=account_tier(session) == "premium", hide_native_download=hide_native_download, share_path=share_path, share_enabled=share_enabled), content_type='text/html')
         except StreamTokenError as e:
             raise web.HTTPForbidden(text=str(e)) from e
         except FIleNotFound as e:
@@ -860,6 +919,26 @@ async def stream_handler_watch(request: web.Request):
     else:
         session['redirect_url'] = request.path_qs
         raise web.HTTPFound('/login')
+
+
+@routes.get('/s/{share_id}')
+async def short_share_route(request):
+    session = await get_session(request)
+    if not session.get("user"):
+        session["redirect_url"] = request.path_qs
+        raise web.HTTPFound('/login')
+    share = await db.get_share_link(request.match_info["share_id"])
+    if not share:
+        raise web.HTTPNotFound(text="This secure link has expired")
+    claim = verify_stream_token(Telegram.SECRET_KEY, share["stream_token"])
+    await require_authorized_chat(claim.chat_id)
+    if (await _channel_policy(claim.chat_id))["access"] == "premium" and not _premium_entitled(session):
+        raise web.HTTPForbidden(text="Premium membership required")
+    record = await db.get_tgfile(claim.chat_id, claim.message_id)
+    if record and record.get("access", "free") == "premium" and not _premium_entitled(session):
+        raise web.HTTPForbidden(text="Premium membership required")
+    public_chat_id = str(claim.chat_id).removeprefix("-100")
+    raise web.HTTPFound(f"/watch/{public_chat_id}?id={claim.message_id}&token={quote(share['stream_token'])}")
 
 
 @routes.get('/{chat_id}/{encoded_name}', allow_head=True)
@@ -888,6 +967,14 @@ async def media_streamer(request: web.Request, chat_id: int, id: int, stream_tok
     claim = verify_stream_token(Telegram.SECRET_KEY, stream_token)
     if claim.chat_id != chat_id or claim.message_id != id:
         raise StreamTokenError("token does not match media")
+    session = await get_session(request)
+    if not session.get("user"):
+        raise web.HTTPUnauthorized(text="Login required")
+    if (await _channel_policy(chat_id))["access"] == "premium" and not _premium_entitled(session):
+        raise web.HTTPForbidden(text="Premium membership required")
+    record = await db.get_tgfile(chat_id, id)
+    if record and record.get("access", "free") == "premium" and not _premium_entitled(session):
+        raise web.HTTPForbidden(text="Premium membership required")
     wants_download = request.query.get("download") == "1"
     if wants_download and claim.scope != "download":
         raise web.HTTPForbidden(text="This link is not authorized for download")

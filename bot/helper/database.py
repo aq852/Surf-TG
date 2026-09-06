@@ -46,6 +46,10 @@ class Database:
     def premium_sessions(self):
         return self.db["premium_sessions"]
 
+    @property
+    def share_links(self):
+        return self.db["share_links"]
+
     @classmethod
     def close_all(cls):
         for client in cls._clients.values():
@@ -328,6 +332,44 @@ class Database:
             self.channel_settings.find_one,
             {"_id": str(chat_id)},
             {"cover": 1, "cover_type": 1},
+        )
+
+    async def get_channel_settings(self, chat_id):
+        return await asyncio.to_thread(self.channel_settings.find_one, {"_id": str(chat_id)}) or {}
+
+    async def get_channel_settings_map(self, chat_ids):
+        ids = [str(chat_id) for chat_id in chat_ids]
+        rows = await asyncio.to_thread(
+            lambda: list(self.channel_settings.find({"_id": {"$in": ids}}))
+        )
+        return {str(row["_id"]): row for row in rows}
+
+    async def update_channel_settings(self, chat_id, access, show_in_latest):
+        result = await asyncio.to_thread(
+            self.channel_settings.update_one,
+            {"_id": str(chat_id)},
+            {"$set": {
+                "access": access,
+                "show_in_latest": bool(show_in_latest),
+                "updated_at": datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+        return result.acknowledged
+
+    async def create_share_link(self, share_id, stream_token, expires_at):
+        await asyncio.to_thread(self.share_links.delete_many, {"expires_at": {"$lte": datetime.now(timezone.utc)}})
+        await asyncio.to_thread(
+            self.share_links.update_one,
+            {"_id": share_id},
+            {"$set": {"stream_token": stream_token, "expires_at": expires_at}},
+            upsert=True,
+        )
+
+    async def get_share_link(self, share_id):
+        return await asyncio.to_thread(
+            self.share_links.find_one,
+            {"_id": share_id, "expires_at": {"$gt": datetime.now(timezone.utc)}},
         )
 
     async def create_user(self, username, password_hash, tier="free", expires_at=None, session_limit=1):

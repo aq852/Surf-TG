@@ -26,35 +26,31 @@ async def get_authorized_chat_ids():
     return {int(channel_id) for channel_id in AUTH_CHANNEL}
 
 
-async def posts_chat(channels):
-    phtml = """
-            <div class="col channel-card">
-                <a href="{path}">
-                    <div class="card profile-card text-white bg-primary mb-2">
-                    
-                        <div class="img-container text-center"
-                            style="width: 145px; height: 145px; display: inline-block; overflow: hidden; position: relative; border-radius: 50%; margin: auto;">
-                            <img src="/static/placeholder.svg" class="card-img-top lzy_img"
-                                data-src="{img}" alt="{title}"
-                                style="object-fit: cover; width: 100%; height: 100%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
-                        </div>
-            
-                        <div class="card-body p-1 text-center">
-                            <div>
-                                <h6 class="card-title">{title}</h6>
-                                <span class="badge bg-warning">{ctype}</span>
-                            </div>
-                        </div>
-                    </div>
-                </a>
-            </div>
-"""
-    return ''.join(phtml.format(
-        path=channel_path(int(channel["chat-id"]), channel["title"]),
-        img=f"/api/channel-cover/{channel['chat-id']}",
-        title=escape(str(channel["title"])),
-        ctype=escape(str(channel['type'])),
-    ) for channel in channels)
+async def posts_chat(channels, channel_settings=None, is_admin=False, user_tier="free"):
+    channel_settings = channel_settings or {}
+    cards = []
+    for channel in channels:
+        chat_id = int(channel["chat-id"])
+        title = escape(str(channel["title"]))
+        setting = channel_settings.get(str(chat_id), {})
+        access = setting.get("access", "free")
+        entitled = is_admin or user_tier == "premium" or access != "premium"
+        open_tag = f'<a href="{channel_path(chat_id, channel["title"])}">' if entitled else '<button type="button" class="locked-file locked-channel" data-premium-required>'
+        close_tag = '</a>' if entitled else '</button>'
+        badges = f'<span class="badge bg-warning">{escape(str(channel["type"]))}</span>'
+        if access == "premium":
+            badges += '<span class="badge premium-badge">Premium</span>'
+        if not entitled:
+            badges += '<span class="badge">Locked</span>'
+        cards.append(
+            '<div class="col channel-card">'
+            f'{open_tag}<div class="card profile-card text-white bg-primary mb-2">'
+            '<div class="img-container text-center">'
+            f'<img src="/static/placeholder.svg" class="card-img-top lzy_img" data-src="/api/channel-cover/{chat_id}" alt="{title}"></div>'
+            f'<div class="card-body p-1 text-center"><div><h6 class="card-title">{title}</h6>{badges}</div></div></div>{close_tag}'
+            '</div>'
+        )
+    return ''.join(cards)
 
 
 async def post_playlist(playlists, is_admin=False, user_tier="free"):
@@ -108,8 +104,8 @@ async def posts_db_file(posts, is_admin=False, user_tier="free"):
             img=escape(str(post.get("thumbnail", "")), quote=True), title=escape(str(post["name"])),
             hash=token, size=escape(str(post['size'])), type=escape(str(post['file_type'])),
             ctype=escape(str(post["parent_folder"])),
-            open_tag=(f'<a href="/watch/{public_chat_id}?id={message_id}&token={token}">' if entitled else '<div class="locked-file">'),
-            close_tag='</a>' if entitled else '</div>',
+            open_tag=(f'<a href="/watch/{public_chat_id}?id={message_id}&token={token}">' if entitled else '<button type="button" class="locked-file" data-premium-required>'),
+            close_tag='</a>' if entitled else '</button>',
             access_badge=(
                 '<span class="badge premium-badge">Premium</span>' if access == "premium" else ''
             ) + ('<span class="badge">Locked</span>' if not entitled else ''),

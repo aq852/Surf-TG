@@ -115,8 +115,8 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free"):
             img=f"/api/thumb/{chat_id}?id={int(post['msg_id'])}",
             title=escape(display_title), hash=token,
             size=escape(str(post['size'])), type=escape(str(post['type'])),
-            open_tag=(f'<a href="/watch/{public_chat_id}?id={int(post["msg_id"])}&token={token}">' if entitled else '<div class="locked-file">'),
-            close_tag='</a>' if entitled else '</div>',
+            open_tag=(f'<a href="/watch/{public_chat_id}?id={int(post["msg_id"])}&token={token}">' if entitled else '<button type="button" class="locked-file" data-premium-required>'),
+            close_tag='</a>' if entitled else '</button>',
             admin_controls=admin_controls,
             admin_checkbox=(
                 '<input type="checkbox" class="form-check-input position-absolute top-0 end-0 m-2" '
