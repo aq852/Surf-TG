@@ -50,6 +50,10 @@ class Database:
     def share_links(self):
         return self.db["share_links"]
 
+    @property
+    def media_requests(self):
+        return self.db["media_requests"]
+
     @classmethod
     def close_all(cls):
         for client in cls._clients.values():
@@ -486,6 +490,34 @@ class Database:
         result = await asyncio.to_thread(self.users.delete_one, {"_id": username.lower()})
         await self.revoke_premium_sessions(username)
         return result.deleted_count
+
+    async def create_media_request(self, username, title, details=""):
+        now = datetime.now(timezone.utc)
+        result = await asyncio.to_thread(
+            self.media_requests.insert_one,
+            {
+                "username": username.lower(), "title": title, "details": details,
+                "status": "pending", "admin_note": "", "created_at": now, "updated_at": now,
+            },
+        )
+        return str(result.inserted_id)
+
+    async def list_media_requests(self, username=None, limit=100):
+        query = {"username": username.lower()} if username else {}
+        return await asyncio.to_thread(
+            lambda: list(self.media_requests.find(query).sort("created_at", DESCENDING).limit(limit))
+        )
+
+    async def update_media_request(self, request_id, status, admin_note=""):
+        try:
+            result = await asyncio.to_thread(
+                self.media_requests.update_one,
+                {"_id": ObjectId(request_id)},
+                {"$set": {"status": status, "admin_note": admin_note, "updated_at": datetime.now(timezone.utc)}},
+            )
+            return result.matched_count
+        except Exception:
+            return 0
 
     async def create_premium_session(self, username, session_id, session_limit, expires_at):
         """Keep only the newest allowed premium browser sessions for an account."""

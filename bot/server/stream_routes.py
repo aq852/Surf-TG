@@ -113,6 +113,58 @@ async def _analytics_html():
         ("Active premium devices", summary["active_premium_sessions"]),
         ("Premium expiring in 7 days", summary["expiring_soon"]),
     )
+
+
+async def _requests_html(session, submitted=False):
+    admin = is_admin(session)
+    username = str(session.get("user", ""))
+    requests = await db.list_media_requests(None if admin else username)
+    rows = []
+    for item in requests:
+        title = escape(str(item.get("title", "Untitled request")))
+        details = escape(str(item.get("details", "")))
+        requester = escape(str(item.get("username", "")))
+        status = str(item.get("status", "pending"))
+        note = escape(str(item.get("admin_note", "")))
+        created_at = item.get("created_at")
+        date_text = created_at.strftime("%d %b %Y") if created_at else "Unknown date"
+        if admin:
+            request_id = escape(str(item["_id"]), quote=True)
+            options = "".join(
+                f'<option value="{value}"{" selected" if status == value else ""}>{label}</option>'
+                for value, label in (("pending", "Pending"), ("added", "Added"), ("rejected", "Rejected"))
+            )
+            rows.append(
+                '<details class="request-card"><summary>'
+                f'<span><strong>{title}</strong><small>Requested by @{requester} · {date_text}</small></span>'
+                f'<span class="badge request-status {escape(status, quote=True)}">{escape(status.title())}</span>'
+                '</summary>'
+                f'<p>{details or "No extra details."}</p><form action="/admin/requests/update" method="post">'
+                f'<input type="hidden" name="request_id" value="{request_id}"><label>Status</label>'
+                f'<select class="form-select" name="status">{options}</select><label>Admin note (optional)</label>'
+                f'<textarea class="form-control" name="admin_note" maxlength="500" rows="3">{note}</textarea>'
+                '<button class="btn btn-primary btn-sm">Save request</button></form></details>'
+            )
+        else:
+            note_html = f'<p class="muted">Owner note: {note}</p>' if note else ''
+            rows.append(
+                '<article class="request-card"><div class="request-head">'
+                f'<div><strong>{title}</strong><small>{date_text}</small></div>'
+                f'<span class="badge request-status {escape(status, quote=True)}">{escape(status.title())}</span>'
+                f'</div><p>{details or "No extra details."}</p>{note_html}</article>'
+            )
+    form = (
+        '<section class="panel request-form"><h2>Request a movie or series</h2>'
+        '<p class="muted">Send a title to the owner. You can return here to see its status.</p>'
+        '<form action="/requests" method="post"><label>Title</label>'
+        '<input class="form-control" name="title" minlength="3" maxlength="180" placeholder="Movie or series name" required>'
+        '<label>Details (optional)</label><textarea class="form-control" name="details" maxlength="600" rows="4" placeholder="Year, language, season, quality, or any useful note"></textarea>'
+        '<button class="btn btn-primary">Send request</button></form></section>'
+    ) if not admin else ''
+    success = '<div class="success-banner">Your request was sent to the owner.</div>' if submitted else ''
+    empty = '<p class="muted">No requests yet.</p>'
+    heading = 'Manage member requests' if admin else 'My requests'
+    return f'{success}<section class="requests-layout">{form}<section class="panel request-list"><div class="section-head"><h2>{heading}</h2><span class="muted">{len(requests)} total</span></div>{"".join(rows) or empty}</section></section>'
     cards = "".join(
         f'<div class="metric-card"><span>{escape(label)}</span><strong>{value}</strong></div>'
         for label, value in metrics
@@ -556,6 +608,57 @@ async def profile_route(request):
         text=await render_page(None, None, route="profile", html=profile, is_admin=is_admin(session), account_role=role_label, is_premium=account_tier(session) == "premium"),
         content_type="text/html",
     )
+
+
+@routes.get('/requests')
+async def requests_route(request):
+    session = await get_session(request)
+    if not session.get("user"):
+        session["redirect_url"] = request.path_qs
+        raise web.HTTPFound('/login')
+    admin = is_admin(session)
+    role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
+    return web.Response(
+        text=await render_page(
+            None, None, route="requests", html=await _requests_html(session, request.query.get("sent") == "1"),
+            is_admin=admin, account_role=role_label, is_premium=account_tier(session) == "premium",
+        ),
+        content_type="text/html",
+    )
+
+
+@routes.post('/requests')
+async def create_request_route(request):
+    session = await get_session(request)
+    username = str(session.get("user", "")).strip()
+    if not username:
+        raise web.HTTPUnauthorized(text="Login required")
+    data = await request.post()
+    title = re.sub(r"\s+", " ", str(data.get("title", "")).strip())
+    details = re.sub(r"\s+", " ", str(data.get("details", "")).strip())
+    if not 3 <= len(title) <= 180:
+        raise web.HTTPBadRequest(text="Request title must contain 3-180 characters")
+    if len(details) > 600:
+        raise web.HTTPBadRequest(text="Request details must contain at most 600 characters")
+    await db.create_media_request(username, title, details)
+    raise web.HTTPFound('/requests?sent=1')
+
+
+@routes.post('/admin/requests/update')
+async def update_request_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    status = str(data.get("status", "pending"))
+    note = re.sub(r"\s+", " ", str(data.get("admin_note", "")).strip())
+    if status not in {"pending", "added", "rejected"}:
+        raise web.HTTPBadRequest(text="Invalid request status")
+    if len(note) > 500:
+        raise web.HTTPBadRequest(text="Admin note must contain at most 500 characters")
+    if not await db.update_media_request(str(data.get("request_id", "")), status, note):
+        raise web.HTTPNotFound(text="Request not found")
+    raise web.HTTPFound('/requests')
 
 
 @routes.post('/profile/password')

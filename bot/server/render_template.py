@@ -165,12 +165,20 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
     elif route == 'profile':
         async with aiopen(ospath.join(tpath, 'profile.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Profile -->", html)
-    if route in {'home', 'playlist', 'index', 'profile', 'admin'}:
+    elif route == 'requests':
+        async with aiopen(ospath.join(tpath, 'requests.html'), 'r', encoding='utf-8') as f:
+            html = (await f.read()).replace("<!-- Requests -->", html)
+    if route in {'home', 'playlist', 'index', 'profile', 'admin', 'requests'}:
         if not is_admin:
             html = re.sub(r'<!-- ADMIN_START -->.*?<!-- ADMIN_END -->', '', html, flags=re.DOTALL)
         else:
             html = html.replace('<!-- ADMIN_START -->', '').replace('<!-- ADMIN_END -->', '')
         html = html.replace('<!-- AccountRole -->', account_role or ('Administrator' if is_admin else 'Viewer'))
+        if route != 'requests':
+            html = html.replace(
+                '<a class="btn btn-sm" href="/profile">Profile</a>',
+                '<a class="btn btn-sm" href="/requests">Requests</a><a class="btn btn-sm" href="/profile">Profile</a>',
+            )
     else:
         claim = verify_stream_token(Telegram.SECRET_KEY, secure_hash)
         if claim.chat_id != int(chat_id) or claim.message_id != int(id):
@@ -232,8 +240,8 @@ def _finish_page(html, theme, is_admin, ad_slot, *, is_premium=False, premium_pr
     return (html
         # Versioned local assets ensure phones do not keep an old responsive
         # stylesheet/script after a Koyeb deployment.
-        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.2.1"')
-        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.2.1"')
+        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.2.2"')
+        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.2.2"')
         .replace("<!-- Theme -->", theme)
         .replace("<!-- BrandName -->", safe_name)
         .replace("<!-- SiteCredit -->", safe_credit)

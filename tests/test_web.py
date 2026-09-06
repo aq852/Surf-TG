@@ -268,6 +268,40 @@ class WebSmokeTests(AioHTTPTestCase):
         response = await self.client.get("/admin")
         self.assertEqual(403, response.status)
 
+    async def test_member_can_submit_a_media_request(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "viewer", "password": "viewer-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        with patch("bot.server.stream_routes.db.create_media_request", AsyncMock(return_value="request-id")) as create:
+            response = await self.client.post(
+                "/requests",
+                data={"title": "Example Movie", "details": "Hindi audio"},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        self.assertEqual("/requests?sent=1", response.headers["Location"])
+        create.assert_awaited_once_with("viewer", "Example Movie", "Hindi audio")
+
+    async def test_viewer_cannot_update_media_request_status(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "viewer", "password": "viewer-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        response = await self.client.post(
+            "/admin/requests/update",
+            data={"request_id": "507f1f77bcf86cd799439011", "status": "added"},
+            headers={"Origin": origin},
+        )
+        self.assertEqual(403, response.status)
+
     async def test_free_viewer_cannot_open_premium_collection(self):
         origin = str(self.server.make_url("/")).rstrip("/")
         await self.client.post(
