@@ -232,8 +232,8 @@ def _finish_page(html, theme, is_admin, ad_slot, *, is_premium=False, premium_pr
     return (html
         # Versioned local assets ensure phones do not keep an old responsive
         # stylesheet/script after a Koyeb deployment.
-        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.2.0"')
-        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.2.0"')
+        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.2.1"')
+        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.2.1"')
         .replace("<!-- Theme -->", theme)
         .replace("<!-- BrandName -->", safe_name)
         .replace("<!-- SiteCredit -->", safe_credit)

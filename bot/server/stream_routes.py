@@ -124,10 +124,13 @@ async def _analytics_html():
         for row in summary["by_channel"]
     ) or '<li><span class="muted">No indexed files yet.</span></li>'
     return (
-        f'<section class="admin-metrics">{cards}</section>'
-        '<section class="panel analytics-channels"><div class="section-head"><h2>Files by channel</h2>'
+        '<details class="panel analytics-panel"><summary><span><strong>Library analytics</strong>'
+        f'<small>{summary["channels"]} channels · {summary["indexed_files"]} indexed files</small>'
+        '</span><span class="analytics-chevron">⌄</span></summary>'
+        f'<div class="analytics-content"><section class="admin-metrics">{cards}</section>'
+        '<div class="section-head"><h2>Files by channel</h2>'
         '<span class="muted">Current indexed library</span></div>'
-        f'<ul class="analytics-list">{channel_rows}</ul></section>'
+        f'<ul class="analytics-list">{channel_rows}</ul></div></details>'
     )
 
 
