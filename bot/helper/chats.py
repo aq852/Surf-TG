@@ -4,6 +4,7 @@ from bot.telegram import StreamBot
 from bot.config import Telegram
 from html import escape
 from bot.helper.security import create_stream_token
+from bot.helper.channel_urls import channel_path
 
 db = Database()
 
@@ -28,7 +29,7 @@ async def get_authorized_chat_ids():
 async def posts_chat(channels):
     phtml = """
             <div class="col channel-card">
-                <a href="/channel/{cid}">
+                <a href="{path}">
                     <div class="card profile-card text-white bg-primary mb-2">
                     
                         <div class="img-container text-center"
@@ -49,7 +50,7 @@ async def posts_chat(channels):
             </div>
 """
     return ''.join(phtml.format(
-        cid=str(channel["chat-id"]).removeprefix("-100"),
+        path=channel_path(int(channel["chat-id"]), channel["title"]),
         img=f"/api/channel-cover/{channel['chat-id']}",
         title=escape(str(channel["title"])),
         ctype=escape(str(channel['type'])),

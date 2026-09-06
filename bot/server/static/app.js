@@ -48,7 +48,7 @@ document.addEventListener("DOMContentLoaded",()=>{
   setPage("prevButton",page-1);setPage("nextButton",page+1);
   document.querySelectorAll("[data-copy]").forEach(button=>button.addEventListener("click",async()=>{await navigator.clipboard.writeText(button.dataset.copy);button.textContent="Copied";setTimeout(()=>button.textContent="Copy link",1200)}));
 });
-window.addEventListener('message',event=>{if(event.data?.type!=='akmv-ad-empty')return;document.querySelectorAll('iframe[data-network-ad]').forEach(frame=>{if(frame.contentWindow===event.source)frame.closest('.network-ad')?.remove()})});
+document.addEventListener('error',event=>{const image=event.target;if(image?.matches?.('[data-sponsor-image]'))image.closest('[data-sponsor-ad]')?.remove()},true);
 function checkSendButton(){const chosen=[...document.querySelectorAll('#selectCheckbox:checked')];const button=document.getElementById('sendButton');if(button)button.disabled=!chosen.length}
 async function sendPopupForm(){
   const chosen=[...document.querySelectorAll('#selectCheckbox:checked')].map(x=>x.dataset.id);

@@ -37,9 +37,9 @@ class Telegram:
     HIDE_CHANNEL = getenv('HIDE_CHANNEL', 'False').lower() in {"1", "true", "yes", "on"}
     SITE_NAME = getenv("SITE_NAME", "AkMovieVerse").strip() or "AkMovieVerse"
     SITE_CREDIT = getenv("SITE_CREDIT", "By AkMovieVerse").strip()
-    AD_TITLE = getenv("AD_TITLE", "").strip()
     AD_URL = getenv("AD_URL", "").strip()
     AD_IMAGE_URL = getenv("AD_IMAGE_URL", "").strip()
+    AD_MOBILE_IMAGE_URL = getenv("AD_MOBILE_IMAGE_URL", "").strip()
     SUPPORT_USERNAME = getenv("SUPPORT_USERNAME", "AK_ownerbot").strip().lstrip("@")
     FILENAME_CLEANUP_REGEX = getenv("FILENAME_CLEANUP_REGEX", "").strip()
 

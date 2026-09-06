@@ -315,48 +315,35 @@ class WebSmokeTests(AioHTTPTestCase):
         change.assert_awaited_once()
         self.assertEqual("member1", change.await_args.args[0])
 
-    async def test_network_ad_document_is_isolated(self):
-        origin = str(self.server.make_url("/")).rstrip("/")
-        await self.client.post(
-            "/login",
-            data={"username": "admin", "password": "admin-safe-password"},
-            headers={"Origin": origin},
-            allow_redirects=False,
-        )
-        values = {
-            "network_ads_enabled": True,
-            "ad_code": '<script src="https://ads.example/tag.js"></script>',
-            "ad_provider": "adsterra",
-        }
-        with patch("bot.server.stream_routes.db.get_variable", AsyncMock(side_effect=lambda key: values.get(key))):
-            response = await self.client.get("/ads/network")
-        html = await response.text()
-        self.assertEqual(200, response.status)
-        self.assertIn("https://ads.example/tag.js", html)
-        self.assertIn("Advertisement unavailable", html)
-        self.assertEqual("SAMEORIGIN", response.headers["X-Frame-Options"])
-        self.assertIn("frame-ancestors 'self'", response.headers["Content-Security-Policy"])
-        self.assertIn("connect-src https: wss:", response.headers["Content-Security-Policy"])
-
-    async def test_manual_ad_is_managed_and_rendered_from_database(self):
+    async def test_sponsor_banner_is_managed_and_rendered_for_free_members(self):
         values = {
             "manual_ads_enabled": True,
-            "manual_ad_title": "Premium offer",
             "manual_ad_url": "https://example.com/offer?from=library",
-            "manual_ad_image_url": "https://example.com/banner.jpg",
+            "manual_ad_desktop_image_url": "https://example.com/banner-desktop.jpg",
+            "manual_ad_mobile_image_url": "https://example.com/banner-mobile.jpg",
         }
         with patch(
             "bot.server.render_template.db.get_variable",
             AsyncMock(side_effect=lambda key: values.get(key)),
         ):
             html = await render_page(
-                None, None, route="home", html="", playlist="", is_admin=True
+                None, None, route="home", html="", playlist="", is_admin=False
             )
-        self.assertIn("Premium offer", html)
         self.assertIn('href="https://example.com/offer?from=library"', html)
-        self.assertIn('src="https://example.com/banner.jpg"', html)
-        self.assertIn("manual-ad", html)
-        self.assertIn('href="/admin"', html)
+        self.assertIn('src="https://example.com/banner-desktop.jpg"', html)
+        self.assertIn('srcset="https://example.com/banner-mobile.jpg"', html)
+        self.assertIn("sponsor-ad", html)
+        self.assertNotIn("<strong>", html)
+
+    async def test_sponsor_banner_is_not_rendered_for_premium_members(self):
+        values = {
+            "manual_ads_enabled": True,
+            "manual_ad_url": "https://example.com/offer",
+            "manual_ad_desktop_image_url": "https://example.com/banner.jpg",
+        }
+        with patch("bot.server.render_template.db.get_variable", AsyncMock(side_effect=lambda key: values.get(key))):
+            html = await render_page(None, None, route="home", html="", playlist="", is_premium=True)
+        self.assertNotIn("sponsor-ad", html)
 
     async def test_admin_can_save_manual_ad_settings(self):
         origin = str(self.server.make_url("/")).rstrip("/")
@@ -377,20 +364,17 @@ class WebSmokeTests(AioHTTPTestCase):
                     "theme": "midnight",
                     "channel": "-100123",
                     "manual_ads_enabled": "yes",
-                    "manual_ad_title": "Premium offer",
                     "manual_ad_url": "https://example.com/offer",
-                    "manual_ad_image_url": "https://example.com/banner.jpg",
+                    "manual_ad_desktop_image_url": "https://example.com/banner-desktop.jpg",
+                    "manual_ad_mobile_image_url": "https://example.com/banner-mobile.jpg",
                     "manual_ad_placement": "all",
-                    "ad_provider": "adsterra",
-                    "ad_height": "100",
-                    "ad_code": "",
                 },
                 headers={"Origin": origin},
                 allow_redirects=False,
             )
         self.assertEqual(302, response.status)
-        self.assertEqual("Premium offer", update.await_args.kwargs["manual_ad_title"])
         self.assertEqual("https://example.com/offer", update.await_args.kwargs["manual_ad_url"])
+        self.assertEqual("https://example.com/banner-desktop.jpg", update.await_args.kwargs["manual_ad_desktop_image_url"])
         self.assertEqual("all", update.await_args.kwargs["manual_ad_placement"])
 
     async def test_manual_ad_rejects_non_http_destination(self):
@@ -409,7 +393,6 @@ class WebSmokeTests(AioHTTPTestCase):
                     "theme": "midnight",
                     "channel": "-100123",
                     "manual_ads_enabled": "yes",
-                    "manual_ad_title": "Unsafe offer",
                     "manual_ad_url": "javascript:alert(1)",
                 },
                 headers={"Origin": origin},
@@ -436,8 +419,6 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("Library settings", html)
         self.assertIn("Viewer & premium accounts", html)
         self.assertIn("Expires on", html)
-        self.assertIn("Adsterra", html)
-        self.assertIn("Monetag", html)
         self.assertIn("Create collection", html)
         self.assertNotIn("ADMIN_START", html)
         self.assertIn("Administrator", html)
@@ -445,8 +426,8 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("Aurora Glass", html)
         self.assertIn("AMOLED Black", html)
         self.assertIn("Graphite Luxe", html)
-        self.assertIn("Manual advertisement", html)
-        self.assertIn("Inline banner/native-banner publisher tag", html)
+        self.assertIn("Sponsor banner", html)
+        self.assertIn("Desktop poster URL", html)
         self.assertIn("Global downloads", html)
 
     async def test_saved_premium_theme_is_rendered_before_javascript(self):

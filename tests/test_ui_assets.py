@@ -23,12 +23,13 @@ class UiAssetTests(unittest.TestCase):
         self.assertIn("akmv-dark-theme", script)
         self.assertIn("picker.dataset.themePicker", script)
 
-    def test_mobile_navigation_and_ad_cleanup_are_present(self):
+    def test_mobile_navigation_and_broken_sponsor_cleanup_are_present(self):
         script = (ROOT / "bot/server/static/app.js").read_text(encoding="utf-8")
         stylesheet = (ROOT / "bot/server/static/app.css").read_text(encoding="utf-8")
         video = (ROOT / "bot/server/template/video.html").read_text(encoding="utf-8")
         self.assertIn("mobile-nav-toggle", script)
-        self.assertIn("akmv-ad-empty", script)
+        self.assertIn("data-sponsor-image", script)
+        self.assertIn("data-sponsor-ad", script)
         self.assertIn(".nav-actions.mobile-open", stylesheet)
         self.assertIn("akmovieverse-vlc-playlist.m3u", video)
 

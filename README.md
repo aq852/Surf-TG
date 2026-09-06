@@ -21,7 +21,7 @@ It keeps the original project's direct workflow—sign in, open a channel, choos
 - Admin controls for deleting indexed rows and marking files premium/download-disabled
 - Individual free or premium viewer accounts stored as password hashes
 - Member profile with expiry countdown, self-service password changes, and Telegram owner support
-- Independently switchable manual ads and sandboxed Adsterra/Monetag publisher tags
+- Poster-only sponsor banners that can point to a Direct Link, affiliate, or your own promotion
 - Eight persistent themes, including Royal Gold, Aurora Glass, AMOLED Black, and Graphite Luxe
 - Mobile-first navigation with a compact Menu button on small screens
 - Dedicated `/admin` control centre for library, advertising, accounts, premium collections, and global downloads
@@ -94,9 +94,9 @@ Important settings:
 | `SITE_CREDIT` | Footer credit; defaults to `By AkMovieVerse` |
 | `THEME` | Default for new browsers: `midnight`, `cinema`, `ocean`, `royal`, `aurora`, `amoled`, `graphite`, or `light` |
 | `FILENAME_CLEANUP_REGEX` | Optional additional case-insensitive regex removed from indexed titles |
-| `AD_TITLE` | Optional initial manual-ad text; it can later be managed from the admin UI |
-| `AD_URL` | Optional initial manual-ad HTTP(S) destination |
-| `AD_IMAGE_URL` | Optional initial manual-ad HTTP(S) image |
+| `AD_URL` | Optional initial sponsor-banner HTTP(S) destination (including an approved Direct Link) |
+| `AD_IMAGE_URL` | Optional initial desktop sponsor poster URL |
+| `AD_MOBILE_IMAGE_URL` | Optional mobile sponsor poster URL |
 | `SUPPORT_USERNAME` | Telegram support username; defaults to `AK_ownerbot` |
 
 ## Run with Docker
@@ -145,7 +145,7 @@ Administrators can upload a PNG, JPEG, or WebP channel picture (maximum 5 MB) fr
 
 The administrator can create a manual banner under **Admin**: enter its title, destination URL, and optional image URL, choose whether it appears everywhere, Home, channel, collection, or player pages, then enable it. Values from `config.env` are initial fallbacks; saving the form stores the managed values in MongoDB. Manual and network ads can be enabled independently.
 
-For Adsterra/Monetag, paste an **inline banner or native-banner** tag and choose its frame height and placement. A Native tag normally contains both a script and a `div` container; paste both together. Popunder, Social Bar, Smartlink/direct-link, and click-trigger tags do not paint a visible banner in this slot, and are intentionally not run in the authenticated application page. Publisher JavaScript runs in a restricted sandboxed iframe, separate from AkMovieVerse session cookies and the parent page. If an inline slot is empty or blocked, it collapses automatically instead of leaving a white rectangle. Test on an approved public domain with browser ad blocking disabled: Brave Shields, DNS filters, and many publishers' localhost restrictions can suppress an otherwise valid tag. Network ads still involve third-party tracking and must comply with the provider's rules and the laws applicable to your visitors.
+The sponsor banner is a responsive image link, not third-party JavaScript. Set a desktop poster, optional mobile poster, destination URL, and placement in **Admin → Sponsor banner**. The destination may be your own promotion, affiliate URL, or an approved Direct Link. If no valid desktop poster is configured, or the image fails to load, the entire slot disappears. Premium members and administrators never receive sponsor markup.
 
 ## Tests
 
