@@ -517,7 +517,7 @@ async def channel_cover_route(request):
     if content_type is None:
         raise web.HTTPBadRequest(text="Use a PNG, JPEG, or WebP image")
     await db.save_channel_cover(chat_id, content, content_type)
-    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
+    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}?cover={int(time.time())}')
 
 
 @routes.get('/api/channel-cover/{chat_id}')
@@ -531,7 +531,7 @@ async def channel_cover_api(request):
     cover = await db.get_channel_cover(chat_id)
     if not cover or not cover.get("cover"):
         raise web.HTTPFound(f'/api/thumb/{chat_id}')
-    return web.Response(body=bytes(cover["cover"]), content_type=cover.get("cover_type", "image/jpeg"), headers={"Cache-Control": "private, max-age=300"})
+    return web.Response(body=bytes(cover["cover"]), content_type=cover.get("cover_type", "image/jpeg"), headers={"Cache-Control": "private, no-store"})
 
 
 @routes.post('/indexed/delete')
@@ -720,7 +720,7 @@ async def _render_channel(request, chat_id: int, chat_title: str, query: str | N
             text=await render_page(
                 None, None, route='index', html=phtml, msg=title,
                 chat_id=str(chat_id).removeprefix("-100"), channel_path=channel_path(chat_id, chat_title),
-                is_admin=admin, account_role=role_label, is_premium=tier == "premium",
+                cover_version=request.query.get("cover", ""), is_admin=admin, account_role=role_label, is_premium=tier == "premium",
             ), content_type='text/html'
         )
     except web.HTTPException:

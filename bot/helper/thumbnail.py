@@ -24,4 +24,7 @@ async def get_image(chat_id, message_id):
         return img
     except Exception as e:
         LOGGER.error(f"Generate Img Error: {e}")
+        # Do not repeatedly retry an unavailable Telegram thumbnail on every
+        # page render. A custom channel cover bypasses this path completely.
+        image_cache[cache_key] = path
         return path

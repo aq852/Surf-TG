@@ -90,7 +90,7 @@ async def _ad_slot(is_premium=False, placement="home"):
     return ""
 
 
-async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', accounts='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False):
+async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False):
     tpath = ospath.join('bot', 'server', 'template')
     if route == 'login':
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
@@ -150,7 +150,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             html = (await f.read()).replace("<!-- Playlist -->", playlist).replace("<!-- Database -->", database).replace("<!-- Title -->", safe_title).replace("<!-- Parent_id -->", escape(str(id or ""), quote=True))
     elif route == 'index':
         async with aiopen(ospath.join(tpath, 'index.html'), 'r', encoding='utf-8') as f:
-            html = (await f.read()).replace("<!-- Print -->", html).replace("<!-- Title -->", safe_title).replace("<!-- Chat_id -->", escape(str(chat_id), quote=True)).replace("<!-- ChannelPath -->", escape(str(channel_path), quote=True))
+            html = (await f.read()).replace("<!-- Print -->", html).replace("<!-- Title -->", safe_title).replace("<!-- Chat_id -->", escape(str(chat_id), quote=True)).replace("<!-- ChannelPath -->", escape(str(channel_path), quote=True)).replace("<!-- CoverVersion -->", escape(str(cover_version), quote=True))
     elif route == 'profile':
         async with aiopen(ospath.join(tpath, 'profile.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Profile -->", html)
