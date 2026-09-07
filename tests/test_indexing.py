@@ -89,6 +89,21 @@ class IndexingTests(IsolatedAsyncioTestCase):
         self.assertIn('value="Movie"', html)
         self.assertNotIn("Telegram original", html)
 
+    async def test_quality_variants_are_grouped_and_manual_group_is_supported(self):
+        posts = [
+            {"msg_id": "7", "chat_id": "-100123", "title": "Example Movie 2025 720p Hindi WEB-DL", "size": "1GB", "type": "video/mp4"},
+            {"msg_id": "8", "chat_id": "-100123", "title": "Example Movie 2025 1080p English WEB-DL", "size": "2GB", "type": "video/mp4"},
+        ]
+        html = await index.posts_grouped_files(posts, -100123, is_admin=True, user_tier="premium")
+        self.assertIn("2 versions", html)
+        self.assertIn("1080P", html)
+        self.assertIn("Group title", html)
+
+        manual = {"msg_id": "9", "chat_id": "-100123", "title": "Random uploader title", "group_title": "Example Movie 2025", "size": "2GB", "type": "video/mp4"}
+        key, label = index.media_group_key(manual)
+        self.assertEqual("manual:example movie 2025", key)
+        self.assertEqual("Example Movie 2025", label)
+
     async def test_free_viewer_sees_premium_collection_as_locked(self):
         html = await post_playlist(
             [{"_id": "507f1f77bcf86cd799439011", "name": "Premium", "thumbnail": "", "parent_folder": "root", "access": "premium"}],
