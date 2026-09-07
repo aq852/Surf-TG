@@ -1034,6 +1034,10 @@ async def get_thumbnail(request):
         img = await get_image(str(chat_id), None)
     response = web.FileResponse(img)
     response.content_type = "image/jpeg"
+    # Thumbnails are behind the authenticated route, but a browser may safely
+    # keep its own copy. This avoids re-downloading the same Telegram preview
+    # every time a member returns to Latest uploads.
+    response.headers["Cache-Control"] = "private, max-age=86400, stale-while-revalidate=3600"
     return response
 
 

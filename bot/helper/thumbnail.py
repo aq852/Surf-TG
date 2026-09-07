@@ -11,7 +11,20 @@ DEFAULT_THUMBNAIL = STATIC_DIR / 'thumbnail.jpg'
 # Keep generated previews out of the public static directory. They are served
 # only through the authenticated /api/thumb route.
 THUMBNAIL_CACHE_DIR = Path(tempfile.gettempdir()) / 'akmovieverse-thumbnails'
-_thumbnail_lock = asyncio.Lock()
+_thumbnail_locks: dict[str, asyncio.Lock] = {}
+
+
+def _thumbnail_lock(cache_key: str) -> asyncio.Lock:
+    """Serialize only duplicate requests for the same thumbnail.
+
+    A single global lock made a cold Latest page download every Telegram
+    poster one at a time. Separate keys can safely download in parallel.
+    """
+    lock = _thumbnail_locks.get(cache_key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _thumbnail_locks[cache_key] = lock
+    return lock
 
 
 def _cached_file(cache_key: str) -> Path:
@@ -33,7 +46,7 @@ async def _download_thumbnail(file_id: str, cache_key: str) -> Path:
 async def get_image(chat_id, message_id):
     global image_cache
     cache_key = f"{chat_id}-{message_id}" if message_id else f"{chat_id}"
-    async with _thumbnail_lock:
+    async with _thumbnail_lock(cache_key):
         cached = image_cache.get(cache_key)
         if cached and Path(cached).is_file():
             return cached
