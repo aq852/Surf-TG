@@ -17,7 +17,7 @@ from bot.telegram import work_loads, multi_clients
 from aiohttp_session import get_session
 from bot.config import Telegram
 from bot.helper.exceptions import FIleNotFound
-from bot.helper.index import get_files, posts_file, posts_grouped_files
+from bot.helper.index import get_files, posts_file
 from bot.server.custom_dl import ByteStreamer
 from bot.server.render_template import render_page
 from bot.helper.ranges import RangeNotSatisfiable, parse_range, plan_chunks
@@ -798,22 +798,6 @@ async def indexed_rename_route(request):
     raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
 
 
-@routes.post('/indexed/group')
-async def indexed_group_route(request):
-    session = await get_session(request)
-    if not is_admin(session):
-        raise web.HTTPForbidden(text="Administrator access required")
-    data = await request.post()
-    chat_id = public_chat_id(str(data.get("chat_id", "")))
-    await require_authorized_chat(chat_id)
-    group_title = re.sub(r"[\x00-\x1f\x7f]+", " ", str(data.get("group_title", "")))
-    group_title = re.sub(r"\s+", " ", group_title).strip()
-    if len(group_title) > 180:
-        raise web.HTTPBadRequest(text="Group title must contain at most 180 characters")
-    await db.update_tgfile_group_title(chat_id, int(data.get("message_id", "0")), group_title)
-    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
-
-
 @routes.post('/indexed/settings')
 async def indexed_settings_route(request):
     session = await get_session(request)
@@ -892,7 +876,10 @@ async def home_route(request):
                     and channel_settings.get(str(post["chat_id"]), {}).get("access", "free") != "premium"
                 ))
             ][:48]
-            latest_html = await posts_grouped_files(latest, 0, is_admin=admin, user_tier=tier)
+            latest_html = ''.join([
+                await posts_file([post], int(post["chat_id"]), is_admin=admin, user_tier=tier)
+                for post in latest
+            ])
             accounts = await _users_html() if admin else ""
             return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, database=latest_html, accounts=accounts, is_admin=admin, account_role=role_label, display_title=request.query.get("view", "latest"), is_premium=tier == "premium", premium_prompt=request.query.get("premium") == "1", latest_query=latest_query), content_type='text/html')
         except web.HTTPException:
@@ -976,7 +963,7 @@ async def _render_channel(request, chat_id: int, chat_title: str, query: str | N
     role_label = "Administrator" if admin else ("Premium" if tier == "premium" else "Viewer")
     try:
         posts = await (search(chat_id, page=page, query=query) if query is not None else get_files(chat_id, page=page))
-        phtml = await posts_grouped_files(posts, chat_id, is_admin=admin, user_tier=tier)
+        phtml = await posts_file(posts, chat_id, is_admin=admin, user_tier=tier)
         title = f"{chat_title} - {query}" if query is not None else chat_title
         return web.Response(
             text=await render_page(

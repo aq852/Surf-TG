@@ -302,18 +302,6 @@ class Database:
         )
         return result.matched_count
 
-    async def update_tgfile_group_title(self, chat_id, message_id, group_title):
-        """Set an optional display group without renaming the original file."""
-        query = {
-            "chat_id": {"$in": [str(chat_id), int(chat_id)]},
-            "msg_id": {"$in": [str(message_id), int(message_id)]},
-        }
-        result = await asyncio.to_thread(
-            self.files.update_many, query,
-            {"$set": {"group_title": group_title}},
-        )
-        return result.matched_count
-
     async def update_tgfile_settings(self, chat_id, message_id, access, downloadable):
         result = await asyncio.to_thread(
             self.files.update_many,

@@ -55,8 +55,8 @@ class UiAssetTests(unittest.TestCase):
     def test_templates_use_local_versioned_frontend_assets(self):
         from bot.server.render_template import _finish_page
         html = _finish_page('<link rel="stylesheet" href="/static/app.css"><script src="/static/app.js"></script>', "midnight", False, "")
-        self.assertIn('/static/app.css?v=3.2.3', html)
-        self.assertIn('/static/app.js?v=3.2.3', html)
+        self.assertIn('/static/app.css?v=3.2.2', html)
+        self.assertIn('/static/app.js?v=3.2.2', html)
 
 
 if __name__ == "__main__":
