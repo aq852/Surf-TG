@@ -7,7 +7,7 @@ import re
 import asyncio
 from datetime import datetime, time as datetime_time, timezone
 from html import escape
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 from aiohttp import web
 from bot.helper.chats import get_chats, get_authorized_chat_ids, post_playlist, posts_chat, posts_db_file
 from bot.helper.database import Database
@@ -132,6 +132,41 @@ async def _analytics_html():
         '<span class="muted">Current indexed library</span></div>'
         f'<ul class="analytics-list">{channel_rows}</ul></div></details>'
     )
+
+
+async def _media_editor_html(query="", channel_filter=""):
+    """Render the administrator's cross-channel indexed-file editor."""
+    channel_ids = await get_authorized_chat_ids()
+    names = {str(channel_id): f"Channel {str(channel_id).removeprefix('-100')}" for channel_id in channel_ids}
+    try:
+        for channel in await get_chats():
+            names[str(channel["chat-id"])] = str(channel.get("title") or names[str(channel["chat-id"])])
+    except Exception as exc:
+        logging.warning("Media editor channel-name lookup failed: %s", exc)
+    selected = str(channel_filter or "").strip()
+    selected_id = int(selected) if selected.lstrip("-").isdigit() and int(selected) in channel_ids else None
+    options = ['<option value="">All authorized channels</option>']
+    for channel_id in sorted(channel_ids):
+        value = str(channel_id)
+        mark = " selected" if selected_id == channel_id else ""
+        options.append(f'<option value="{escape(value, quote=True)}"{mark}>{escape(names[value])}</option>')
+    query = re.sub(r"\s+", " ", str(query or "")).strip()[:120]
+    if not query and selected_id is None:
+        return "".join(options), '<p class="muted">Search by title, quality, language, or filename across the indexed library.</p>'
+    search_channels = {selected_id} if selected_id is not None else channel_ids
+    results = await db.search_indexed_files(search_channels, query, per_page=50)
+    if not results:
+        return "".join(options), '<p class="muted">No indexed files matched this search.</p>'
+    return_to = "/admin?" + urlencode({"media_q": query, "media_channel": selected} if selected else {"media_q": query})
+    cards = []
+    for post in results:
+        chat_id = int(post["chat_id"])
+        cards.append(
+            f'<section class="media-result"><div class="section-head"><strong>{escape(names.get(str(chat_id), str(chat_id)))}</strong>'
+            f'<span class="muted">Message {escape(str(post.get("msg_id", "")))}</span></div>'
+            f'<div class="grid">{await posts_file([post], chat_id, is_admin=True, user_tier="premium", return_to=return_to)}</div></section>'
+        )
+    return "".join(options), "".join(cards)
 
 
 async def _requests_html(session, submitted=False):
@@ -767,7 +802,8 @@ async def indexed_delete_route(request):
     chat_id = public_chat_id(str(data.get("chat_id", "")))
     await require_authorized_chat(chat_id)
     await db.delete_tgfile(chat_id, int(data.get("message_id", "0")))
-    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
+    target = str(data.get("return_to", ""))
+    raise web.HTTPFound(target if target.startswith("/admin") else f'/channel/{str(chat_id).removeprefix("-100")}')
 
 
 @routes.post('/indexed/delete-all')
@@ -795,7 +831,8 @@ async def indexed_rename_route(request):
     if not title or len(title) > 500:
         raise web.HTTPBadRequest(text="Display name must contain 1-500 characters")
     await db.update_tgfile_title(chat_id, int(data.get("message_id", "0")), title)
-    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
+    target = str(data.get("return_to", ""))
+    raise web.HTTPFound(target if target.startswith("/admin") else f'/channel/{str(chat_id).removeprefix("-100")}')
 
 
 @routes.post('/indexed/settings')
@@ -810,7 +847,28 @@ async def indexed_settings_route(request):
     if access not in {"free", "premium"}:
         raise web.HTTPBadRequest(text="Invalid access level")
     await db.update_tgfile_settings(chat_id, int(data.get("message_id", "0")), access, data.get("downloadable") == "yes")
-    raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
+    target = str(data.get("return_to", ""))
+    raise web.HTTPFound(target if target.startswith("/admin") else f'/channel/{str(chat_id).removeprefix("-100")}')
+
+
+@routes.post('/indexed/poster')
+async def indexed_poster_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    chat_id = public_chat_id(str(data.get("chat_id", "")))
+    await require_authorized_chat(chat_id)
+    poster_url = str(data.get("poster_url", "")).strip()
+    if len(poster_url) > 1000:
+        raise web.HTTPBadRequest(text="Poster URL must contain at most 1000 characters")
+    if poster_url:
+        parsed = urlparse(poster_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise web.HTTPBadRequest(text="Poster URL must be a valid HTTP(S) URL")
+    await db.update_tgfile_poster(chat_id, int(data.get("message_id", "0")), poster_url)
+    target = str(data.get("return_to", ""))
+    raise web.HTTPFound(target if target.startswith("/admin") else f'/channel/{str(chat_id).removeprefix("-100")}')
 
 
 @routes.post('/admin/download-policy')
@@ -836,10 +894,13 @@ async def admin_route(request):
         raise web.HTTPForbidden(text="Administrator access required")
     accounts = await _users_html()
     analytics = await _analytics_html()
+    media_channels, media = await _media_editor_html(
+        request.query.get("media_q", ""), request.query.get("media_channel", "")
+    )
     return web.Response(
         text=await render_page(
             None, None, route="admin", accounts=accounts, analytics=analytics,
-            is_admin=True, account_role="Administrator"
+            media=media, media_channels=media_channels, media_query=request.query.get("media_q", ""), is_admin=True, account_role="Administrator"
         ),
         content_type="text/html",
     )
@@ -1084,7 +1145,7 @@ async def stream_handler_watch(request: web.Request):
                     share_id, stream_token, datetime.fromtimestamp(claim.expires_at, timezone.utc),
                 )
                 share_path = f"/s/{share_id}"
-            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable, display_title=display_title, is_premium=account_tier(session) == "premium", hide_native_download=hide_native_download, telegram_delivery_enabled=telegram_delivery_enabled is not False, share_path=share_path, share_enabled=share_enabled), content_type='text/html')
+            return web.Response(text=await render_page(message_id, stream_token, chat_id=chat_id, downloadable=downloadable, display_title=display_title, poster=(record or {}).get("poster_url", ""), is_premium=account_tier(session) == "premium", hide_native_download=hide_native_download, telegram_delivery_enabled=telegram_delivery_enabled is not False, share_path=share_path, share_enabled=share_enabled), content_type='text/html')
         except StreamTokenError as e:
             raise web.HTTPForbidden(text=str(e)) from e
         except FIleNotFound as e:

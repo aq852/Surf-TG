@@ -60,7 +60,7 @@ async def get_files(chat_id, page=1):
     save_cache(chat_id, {"posts": posts}, page)
     return posts
 
-async def posts_file(posts, chat_id, is_admin=False, user_tier="free"):
+async def posts_file(posts, chat_id, is_admin=False, user_tier="free", return_to=""):
     phtml = """
             <div class="col">
                 
@@ -91,11 +91,16 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free"):
         if is_admin:
             checked = " checked" if post.get("downloadable", True) else ""
             selected = " selected" if access == "premium" else ""
+            return_input = (
+                f'<input type="hidden" name="return_to" value="{escape(return_to, quote=True)}">'
+                if return_to else ""
+            )
             admin_controls = (
                 '<details class="card-admin"><summary>Manage</summary>'
                 '<form action="/indexed/settings" method="post">'
                 f'<input type="hidden" name="chat_id" value="{public_chat_id}">'
                 f'<input type="hidden" name="message_id" value="{int(post["msg_id"])}">'
+                f'{return_input}'
                 '<label>Access</label><select class="form-select" name="access">'
                 f'<option value="free">Free</option><option value="premium"{selected}>Premium</option></select>'
                 f'<label class="check-label"><input type="checkbox" name="downloadable" value="yes"{checked}> Allow download button</label>'
@@ -103,16 +108,26 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free"):
                 '<form action="/indexed/rename" method="post">'
                 f'<input type="hidden" name="chat_id" value="{public_chat_id}">'
                 f'<input type="hidden" name="message_id" value="{int(post["msg_id"])}">'
+                f'{return_input}'
                 '<label>Display name</label>'
                 f'<input class="form-control" name="title" maxlength="500" value="{escape(display_title, quote=True)}" required>'
                 '<button class="btn btn-primary btn-sm">Rename display name</button></form>'
+                '<form action="/indexed/poster" method="post">'
+                f'<input type="hidden" name="chat_id" value="{public_chat_id}"><input type="hidden" name="message_id" value="{int(post["msg_id"])}">'
+                f'{return_input}'
+                '<label>Poster URL (optional)</label>'
+                f'<input class="form-control" type="url" name="poster_url" maxlength="1000" value="{escape(str(post.get("poster_url", "")), quote=True)}" placeholder="https://example.com/poster.jpg">'
+                '<button class="btn btn-primary btn-sm">Save poster</button>'
+                '</form>'
                 '<form action="/indexed/delete" method="post" onsubmit="return confirm(\'Remove this indexed file?\')">'
                 f'<input type="hidden" name="chat_id" value="{public_chat_id}"><input type="hidden" name="message_id" value="{int(post["msg_id"])}">'
+                f'{return_input}'
                 '<button class="btn btn-danger btn-sm">Delete index</button></form></details>'
             )
+        poster = str(post.get("poster_url") or f"/api/thumb/{chat_id}?id={int(post['msg_id'])}")
         cards.append(phtml.format(
             chat_id=public_chat_id, id=int(post["msg_id"]),
-            img=f"/api/thumb/{chat_id}?id={int(post['msg_id'])}",
+            img=escape(poster, quote=True),
             title=escape(display_title), hash=token,
             size=escape(str(post['size'])), type=escape(str(post['type'])),
             open_tag=(f'<a href="/watch/{public_chat_id}?id={int(post["msg_id"])}&token={token}">' if entitled else '<button type="button" class="locked-file" data-premium-required>'),

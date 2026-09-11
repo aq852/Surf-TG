@@ -222,6 +222,44 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertEqual(302, response.status)
         rename.assert_awaited_once_with(-100123, 7, "Better Movie Name")
 
+    async def test_admin_can_save_poster_override(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        with (
+            patch("bot.server.stream_routes.get_authorized_chat_ids", AsyncMock(return_value={-100123})),
+            patch("bot.server.stream_routes.db.update_tgfile_poster", AsyncMock(return_value=1)) as save,
+        ):
+            response = await self.client.post(
+                "/indexed/poster",
+                data={"chat_id": "123", "message_id": "7", "poster_url": "https://img.example/poster.jpg"},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        save.assert_awaited_once_with(-100123, 7, "https://img.example/poster.jpg")
+
+    async def test_poster_override_rejects_non_http_url(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login",
+            data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin},
+            allow_redirects=False,
+        )
+        with patch("bot.server.stream_routes.get_authorized_chat_ids", AsyncMock(return_value={-100123})):
+            response = await self.client.post(
+                "/indexed/poster",
+                data={"chat_id": "123", "message_id": "7", "poster_url": "javascript:alert(1)"},
+                headers={"Origin": origin},
+                allow_redirects=False,
+            )
+        self.assertEqual(400, response.status)
+
     async def test_viewer_cannot_bulk_delete_index(self):
         origin = str(self.server.make_url("/")).rstrip("/")
         await self.client.post(

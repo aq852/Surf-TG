@@ -256,6 +256,24 @@ class Database:
         return await asyncio.to_thread(lambda: list(self.files.find(query).sort(
             'msg_id', DESCENDING).skip(offset).limit(per_page)))
 
+    async def search_indexed_files(self, chat_ids, query="", page=1, per_page=50):
+        """Search indexed Telegram files across the authorized channels."""
+        ids = []
+        for chat_id in chat_ids:
+            ids.extend((str(chat_id), int(chat_id)))
+        if not ids:
+            return []
+        filters = {"chat_id": {"$in": ids}}
+        words = re.findall(r"\w+", str(query or "").lower())
+        if words:
+            pattern = ".*".join(f"(?=.*{re.escape(word)})" for word in words)
+            regex = {"$regex": f".*{pattern}.*", "$options": "i"}
+            filters["$or"] = [{"title": regex}, {"display_title": regex}]
+        offset = max(0, int(page) - 1) * per_page
+        return await asyncio.to_thread(lambda: list(
+            self.files.find(filters).sort("msg_id", DESCENDING).skip(offset).limit(per_page)
+        ))
+
     async def get_tgfile(self, chat_id, message_id):
         return await asyncio.to_thread(
             self.files.find_one,
@@ -319,6 +337,17 @@ class Database:
                 "type": "file",
             },
             {"$set": {"access": access, "downloadable": bool(downloadable)}},
+        )
+        return result.matched_count
+
+    async def update_tgfile_poster(self, chat_id, message_id, poster_url):
+        result = await asyncio.to_thread(
+            self.files.update_many,
+            {
+                "chat_id": {"$in": [str(chat_id), int(chat_id)]},
+                "msg_id": {"$in": [str(message_id), int(message_id)]},
+            },
+            {"$set": {"poster_url": poster_url}},
         )
         return result.matched_count
 
