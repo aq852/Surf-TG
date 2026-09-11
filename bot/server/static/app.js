@@ -42,7 +42,18 @@ document.addEventListener("DOMContentLoaded",()=>{
   }
   document.querySelectorAll('[data-back]').forEach(button=>button.addEventListener('click',()=>history.length>1?history.back():location.assign('/')));
   const themeSelect=document.getElementById('siteTheme');if(themeSelect)themeSelect.value=base;
-  document.querySelectorAll("img[data-src]").forEach(img=>{img.src=img.dataset.src;img.removeAttribute("data-src")});
+  document.querySelectorAll("img[data-src]").forEach(img=>{
+    const source=img.dataset.src;
+    img.loading='lazy';
+    img.decoding='async';
+    img.addEventListener('error',()=>{
+      if(img.dataset.thumbnailFallback)return;
+      img.dataset.thumbnailFallback='1';
+      img.src='/static/thumbnail.jpg';
+    },{once:true});
+    img.src=source;
+    img.removeAttribute('data-src');
+  });
   const url=new URL(location.href), page=Number(url.searchParams.get("page")||1);
   const setPage=(id,next)=>{const a=document.getElementById(id);if(!a)return;if(next<1){a.classList.add("disabled");return}const target=new URL(url);target.searchParams.set("page",next);a.href=target};
   setPage("prevButton",page-1);setPage("nextButton",page+1);
