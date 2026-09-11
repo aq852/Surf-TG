@@ -340,16 +340,24 @@ class Database:
         )
         return result.matched_count
 
-    async def update_tgfile_poster(self, chat_id, message_id, poster_url):
+    async def update_tgfile_poster(self, chat_id, message_id, poster_url, poster_source="custom"):
+        values = {"poster_url": poster_url, "poster_source": poster_source if poster_url else ""}
         result = await asyncio.to_thread(
             self.files.update_many,
             {
                 "chat_id": {"$in": [str(chat_id), int(chat_id)]},
                 "msg_id": {"$in": [str(message_id), int(message_id)]},
             },
-            {"$set": {"poster_url": poster_url}},
+            {"$set": values},
         )
         return result.matched_count
+
+    async def update_tgfile_posters(self, targets, poster_url, poster_source="custom"):
+        """Apply or reset one display poster across a small, admin-selected batch."""
+        total = 0
+        for chat_id, message_id in targets:
+            total += await self.update_tgfile_poster(chat_id, message_id, poster_url, poster_source)
+        return total
 
     async def add_tgfiles(self, chat_id, file_id, hash, name, size, file_type):
         numeric_file_id = int(file_id)

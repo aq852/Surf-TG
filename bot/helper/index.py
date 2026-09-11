@@ -60,7 +60,7 @@ async def get_files(chat_id, page=1):
     save_cache(chat_id, {"posts": posts}, page)
     return posts
 
-async def posts_file(posts, chat_id, is_admin=False, user_tier="free", return_to=""):
+async def posts_file(posts, chat_id, is_admin=False, user_tier="free", return_to="", poster_selection=False):
     phtml = """
             <div class="col">
                 
@@ -134,6 +134,9 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free", return_to
             close_tag='</a>' if entitled else '</button>',
             admin_controls=admin_controls,
             admin_checkbox=(
+                '<label class="poster-select"><input type="checkbox" data-poster-target '
+                f'value="{int(chat_id)}:{int(post["msg_id"])}"><span>Select for Poster Studio</span></label>'
+                if is_admin and poster_selection else
                 '<input type="checkbox" class="form-check-input position-absolute top-0 end-0 m-2" '
                 'onchange="checkSendButton()" id="selectCheckbox" '
                 f'data-id="{int(post["msg_id"])}|{token}|{escape(display_title, quote=True)}|'

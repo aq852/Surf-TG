@@ -49,10 +49,21 @@ document.addEventListener("DOMContentLoaded",()=>{
     img.addEventListener('error',()=>{
       if(img.dataset.thumbnailFallback)return;
       img.dataset.thumbnailFallback='1';
-      img.src='/static/thumbnail.jpg';
+      img.src='/static/thumbnail.svg';
     },{once:true});
     img.src=source;
     img.removeAttribute('data-src');
+  });
+  const posterTargets=()=>[...document.querySelectorAll('[data-poster-target]:checked')].map(input=>input.value);
+  document.querySelectorAll('[data-poster-selection-form]').forEach(form=>form.addEventListener('submit',event=>{
+    const targets=posterTargets();
+    if(!targets.length){event.preventDefault();alert('Select one or more media cards before applying this Poster Studio action.');return}
+    form.querySelectorAll('[data-poster-targets]').forEach(input=>input.value=targets.join(','));
+  }));
+  document.querySelectorAll('[data-poster-preview-input]').forEach(input=>{
+    const preview=input.closest('form')?.querySelector('[data-poster-preview]');
+    const showPreview=()=>{if(!preview)return;const value=input.value.trim();preview.hidden=!value;if(value)preview.src=value};
+    input.addEventListener('input',showPreview);preview?.addEventListener('error',()=>preview.hidden=true);showPreview();
   });
   const url=new URL(location.href), page=Number(url.searchParams.get("page")||1);
   const setPage=(id,next)=>{const a=document.getElementById(id);if(!a)return;if(next<1){a.classList.add("disabled");return}const target=new URL(url);target.searchParams.set("page",next);a.href=target};

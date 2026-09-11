@@ -68,7 +68,8 @@ class ByteStreamer:
             logging.debug("Finished yielding file with %s parts.", current_part - 1)
             work_loads[index] -= 1
 
-    async def generate_media_session(self, client: Client, file_id: FileId) -> Session:
+    @staticmethod
+    async def generate_media_session(client: Client, file_id: FileId) -> Session:
         media_session = client.media_sessions.get(file_id.dc_id, None)
         if media_session is None:
             if file_id.dc_id != await client.storage.dc_id():

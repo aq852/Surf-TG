@@ -46,8 +46,9 @@ class UiAssetTests(unittest.TestCase):
         self.assertIn('placeholder="Search latest uploads only"', home)
         self.assertIn('name="view" value="latest"', home)
         self.assertIn("<!-- Analytics -->", admin)
-        self.assertIn("Media editor", admin)
+        self.assertIn("Poster Studio & media editor", admin)
         self.assertIn('name="media_q"', admin)
+        self.assertIn("Bulk poster tools", (ROOT / "bot/server/stream_routes.py").read_text(encoding="utf-8"))
 
     def test_request_template_is_available(self):
         request_page = (ROOT / "bot/server/template/requests.html").read_text(encoding="utf-8")
@@ -57,8 +58,8 @@ class UiAssetTests(unittest.TestCase):
     def test_templates_use_local_versioned_frontend_assets(self):
         from bot.server.render_template import _finish_page
         html = _finish_page('<link rel="stylesheet" href="/static/app.css"><script src="/static/app.js"></script>', "midnight", False, "")
-        self.assertIn('/static/app.css?v=3.2.4', html)
-        self.assertIn('/static/app.js?v=3.2.4', html)
+        self.assertIn('/static/app.css?v=3.2.5', html)
+        self.assertIn('/static/app.js?v=3.2.5', html)
 
 
 if __name__ == "__main__":

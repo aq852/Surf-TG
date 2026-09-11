@@ -241,7 +241,25 @@ class WebSmokeTests(AioHTTPTestCase):
                 allow_redirects=False,
             )
         self.assertEqual(302, response.status)
-        save.assert_awaited_once_with(-100123, 7, "https://img.example/poster.jpg")
+        save.assert_awaited_once_with(-100123, 7, "https://img.example/poster.jpg", "custom")
+
+    async def test_admin_can_bulk_apply_tmdb_poster(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login", data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin}, allow_redirects=False,
+        )
+        with (
+            patch("bot.server.stream_routes.get_authorized_chat_ids", AsyncMock(return_value={-100123})),
+            patch("bot.server.stream_routes.db.update_tgfile_posters", AsyncMock(return_value=2)) as save,
+        ):
+            response = await self.client.post(
+                "/admin/posters/bulk",
+                data={"target_ids": "123:7,123:8", "poster_url": "https://image.tmdb.org/t/p/w500/poster.jpg", "poster_source": "tmdb"},
+                headers={"Origin": origin}, allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        save.assert_awaited_once_with([(-100123, 7), (-100123, 8)], "https://image.tmdb.org/t/p/w500/poster.jpg", "tmdb")
 
     async def test_poster_override_rejects_non_http_url(self):
         origin = str(self.server.make_url("/")).rstrip("/")

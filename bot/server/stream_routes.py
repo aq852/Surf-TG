@@ -12,7 +12,8 @@ from aiohttp import web
 from bot.helper.chats import get_chats, get_authorized_chat_ids, post_playlist, posts_chat, posts_db_file
 from bot.helper.database import Database
 from bot.helper.search import search
-from bot.helper.thumbnail import get_image
+from bot.helper.thumbnail import get_image, is_default_thumbnail, refresh_image
+from bot.helper.tmdb import search_posters
 from bot.telegram import work_loads, multi_clients
 from aiohttp_session import get_session
 from bot.config import Telegram
@@ -134,7 +135,81 @@ async def _analytics_html():
     )
 
 
-async def _media_editor_html(query="", channel_filter=""):
+def _admin_return_to(value=""):
+    value = str(value or "")
+    return value if value.startswith("/admin") else "/admin#media-editor"
+
+
+async def _poster_targets(data):
+    """Validate the small, explicit selection submitted by Poster Studio."""
+    raw = str(data.get("target_ids", ""))
+    values = [item for item in raw.split(",") if item]
+    if not values or len(values) > 50:
+        raise web.HTTPBadRequest(text="Select between 1 and 50 indexed files")
+    targets = []
+    seen = set()
+    for value in values:
+        try:
+            chat_raw, message_raw = value.split(":", 1)
+            chat_id = public_chat_id(chat_raw)
+            message_id = int(message_raw)
+        except (ValueError, TypeError, web.HTTPException) as exc:
+            raise web.HTTPBadRequest(text="Invalid Poster Studio selection") from exc
+        if message_id < 1 or (chat_id, message_id) in seen:
+            continue
+        await require_authorized_chat(chat_id)
+        targets.append((chat_id, message_id))
+        seen.add((chat_id, message_id))
+    if not targets:
+        raise web.HTTPBadRequest(text="Select at least one indexed file")
+    return targets
+
+
+def _poster_studio_controls(return_to, query, channel_filter):
+    query_value = escape(query, quote=True)
+    channel_value = escape(channel_filter, quote=True)
+    return_value = escape(return_to, quote=True)
+    return (
+        '<section class="poster-studio"><div><h3>Bulk poster tools</h3>'
+        '<p class="muted">Select cards below, then apply one poster to all of them. Reset restores Telegram’s original thumbnail.</p></div>'
+        '<form action="/admin/posters/bulk" method="post" class="poster-bulk-form" data-poster-selection-form>'
+        f'<input type="hidden" name="return_to" value="{return_value}"><input type="hidden" name="target_ids" data-poster-targets>'
+        '<label>Custom poster URL</label><div class="poster-url-row"><input class="form-control" type="url" name="poster_url" maxlength="1000" placeholder="https://example.com/poster.jpg" required data-poster-preview-input><button class="btn btn-primary">Apply to selected</button></div>'
+        '<img class="poster-bulk-preview" data-poster-preview hidden alt="Poster preview"></form>'
+        '<div class="poster-actions"><form action="/admin/posters/reset" method="post" data-poster-selection-form>'
+        f'<input type="hidden" name="return_to" value="{return_value}"><input type="hidden" name="target_ids" data-poster-targets><button class="btn btn-sm">Reset selected to Telegram original</button></form>'
+        '<form action="/admin/thumbnails/refresh" method="post" data-poster-selection-form>'
+        f'<input type="hidden" name="return_to" value="{return_value}"><input type="hidden" name="target_ids" data-poster-targets><button class="btn btn-sm">Refresh / retry Telegram thumbnails</button></form></div>'
+        '<form action="/admin" method="get" class="tmdb-search"><input type="hidden" name="media_q" value="' + query_value + '">'
+        '<input type="hidden" name="media_channel" value="' + channel_value + '"><label>Search TMDB posters</label>'
+        '<div class="poster-url-row"><input class="form-control" name="tmdb_q" value="<!-- TmdbQuery -->" maxlength="180" placeholder="Movie or series title"><button class="btn btn-sm">Find on TMDB</button></div></form></section>'
+    )
+
+
+async def _tmdb_results_html(query, return_to):
+    query = re.sub(r"\s+", " ", str(query or "")).strip()[:180]
+    if not query:
+        return ""
+    if not Telegram.TMDB_READ_ACCESS_TOKEN:
+        return '<p class="muted">TMDB is not configured. Add TMDB_READ_ACCESS_TOKEN to the host environment.</p>'
+    choices = await search_posters(query)
+    if not choices:
+        return '<p class="muted">No TMDB posters found. Check the title or use a direct poster URL.</p>'
+    cards = []
+    for item in choices:
+        title = escape(item["title"])
+        subtitle = escape(" ".join(part for part in (item["kind"], item["year"]) if part))
+        poster = escape(item["poster_url"], quote=True)
+        cards.append(
+            '<article class="tmdb-choice"><img src="' + poster + '" alt="" loading="lazy"><div><strong>' + title + '</strong><small>' + subtitle + '</small>'
+            '<form action="/admin/posters/bulk" method="post" data-poster-selection-form><input type="hidden" name="poster_url" value="' + poster + '"><input type="hidden" name="poster_source" value="tmdb">'
+            '<input type="hidden" name="return_to" value="' + escape(return_to, quote=True) + '"><input type="hidden" name="target_ids" data-poster-targets>'
+            '<button class="btn btn-primary btn-sm">Use for selected</button></form></div></article>'
+        )
+    return '<section class="tmdb-results"><div class="section-head"><h3>TMDB results</h3><span class="muted">Select media cards first, then choose a poster</span></div><div class="tmdb-grid">' + "".join(cards) + "</div></section>"
+
+
+async def _media_editor_html(query="", channel_filter="", tmdb_query=""):
     """Render the administrator's cross-channel indexed-file editor."""
     channel_ids = await get_authorized_chat_ids()
     names = {str(channel_id): f"Channel {str(channel_id).removeprefix('-100')}" for channel_id in channel_ids}
@@ -158,13 +233,13 @@ async def _media_editor_html(query="", channel_filter=""):
     if not results:
         return "".join(options), '<p class="muted">No indexed files matched this search.</p>'
     return_to = "/admin?" + urlencode({"media_q": query, "media_channel": selected} if selected else {"media_q": query})
-    cards = []
+    cards = [_poster_studio_controls(return_to, query, selected), await _tmdb_results_html(tmdb_query, return_to)]
     for post in results:
         chat_id = int(post["chat_id"])
         cards.append(
             f'<section class="media-result"><div class="section-head"><strong>{escape(names.get(str(chat_id), str(chat_id)))}</strong>'
             f'<span class="muted">Message {escape(str(post.get("msg_id", "")))}</span></div>'
-            f'<div class="grid">{await posts_file([post], chat_id, is_admin=True, user_tier="premium", return_to=return_to)}</div></section>'
+            f'<div class="grid">{await posts_file([post], chat_id, is_admin=True, user_tier="premium", return_to=return_to, poster_selection=True)}</div></section>'
         )
     return "".join(options), "".join(cards)
 
@@ -866,9 +941,50 @@ async def indexed_poster_route(request):
         parsed = urlparse(poster_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise web.HTTPBadRequest(text="Poster URL must be a valid HTTP(S) URL")
-    await db.update_tgfile_poster(chat_id, int(data.get("message_id", "0")), poster_url)
+    poster_source = str(data.get("poster_source", "custom"))
+    await db.update_tgfile_poster(
+        chat_id, int(data.get("message_id", "0")), poster_url,
+        poster_source if poster_source in {"custom", "tmdb"} else "custom",
+    )
     target = str(data.get("return_to", ""))
     raise web.HTTPFound(target if target.startswith("/admin") else f'/channel/{str(chat_id).removeprefix("-100")}')
+
+
+@routes.post('/admin/posters/bulk')
+async def bulk_poster_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    poster_url = _external_url(data.get("poster_url"), "Poster URL", required=True)
+    if len(poster_url) > 1000:
+        raise web.HTTPBadRequest(text="Poster URL must contain at most 1000 characters")
+    source = str(data.get("poster_source", "custom"))
+    if source not in {"custom", "tmdb"}:
+        source = "custom"
+    await db.update_tgfile_posters(await _poster_targets(data), poster_url, source)
+    raise web.HTTPFound(_admin_return_to(data.get("return_to")))
+
+
+@routes.post('/admin/posters/reset')
+async def reset_poster_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    await db.update_tgfile_posters(await _poster_targets(data), "", "")
+    raise web.HTTPFound(_admin_return_to(data.get("return_to")))
+
+
+@routes.post('/admin/thumbnails/refresh')
+async def refresh_thumbnail_route(request):
+    session = await get_session(request)
+    if not is_admin(session):
+        raise web.HTTPForbidden(text="Administrator access required")
+    data = await request.post()
+    for chat_id, message_id in await _poster_targets(data):
+        refresh_image(str(chat_id), message_id)
+    raise web.HTTPFound(_admin_return_to(data.get("return_to")))
 
 
 @routes.post('/admin/download-policy')
@@ -895,12 +1011,12 @@ async def admin_route(request):
     accounts = await _users_html()
     analytics = await _analytics_html()
     media_channels, media = await _media_editor_html(
-        request.query.get("media_q", ""), request.query.get("media_channel", "")
+        request.query.get("media_q", ""), request.query.get("media_channel", ""), request.query.get("tmdb_q", "")
     )
     return web.Response(
         text=await render_page(
             None, None, route="admin", accounts=accounts, analytics=analytics,
-            media=media, media_channels=media_channels, media_query=request.query.get("media_q", ""), is_admin=True, account_role="Administrator"
+            media=media, media_channels=media_channels, media_query=request.query.get("media_q", ""), tmdb_query=request.query.get("tmdb_q", ""), is_admin=True, account_role="Administrator"
         ),
         content_type="text/html",
     )
@@ -1094,11 +1210,14 @@ async def get_thumbnail(request):
     else:
         img = await get_image(str(chat_id), None)
     response = web.FileResponse(img)
-    response.content_type = "image/jpeg"
+    response.content_type = "image/svg+xml" if str(img).lower().endswith(".svg") else "image/jpeg"
     # Thumbnails are behind the authenticated route, but a browser may safely
     # keep its own copy. This avoids re-downloading the same Telegram preview
     # every time a member returns to Latest uploads.
-    response.headers["Cache-Control"] = "private, max-age=86400, stale-while-revalidate=3600"
+    response.headers["Cache-Control"] = (
+        "private, no-store" if is_default_thumbnail(img)
+        else "private, max-age=86400, stale-while-revalidate=3600"
+    )
     return response
 
 

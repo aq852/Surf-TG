@@ -42,6 +42,8 @@ class Telegram:
     AD_MOBILE_IMAGE_URL = getenv("AD_MOBILE_IMAGE_URL", "").strip()
     SUPPORT_USERNAME = getenv("SUPPORT_USERNAME", "AK_ownerbot").strip().lstrip("@")
     FILENAME_CLEANUP_REGEX = getenv("FILENAME_CLEANUP_REGEX", "").strip()
+    # Optional TMDB v4 read token used by the admin-only Poster Studio.
+    TMDB_READ_ACCESS_TOKEN = getenv("TMDB_READ_ACCESS_TOKEN", "").strip()
 
     @classmethod
     def validate(cls):
