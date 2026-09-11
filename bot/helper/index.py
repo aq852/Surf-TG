@@ -135,7 +135,7 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free", return_to
             admin_controls=admin_controls,
             admin_checkbox=(
                 '<label class="poster-select"><input type="checkbox" data-poster-target '
-                f'value="{int(chat_id)}:{int(post["msg_id"])}"><span>Select for Poster Studio</span></label>'
+                f'value="{public_chat_id}:{int(post["msg_id"])}"><span>Select for Poster Studio</span></label>'
                 if is_admin and poster_selection else
                 '<input type="checkbox" class="form-check-input position-absolute top-0 end-0 m-2" '
                 'onchange="checkSendButton()" id="selectCheckbox" '

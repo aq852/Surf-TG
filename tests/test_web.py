@@ -261,6 +261,18 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertEqual(302, response.status)
         save.assert_awaited_once_with([(-100123, 7), (-100123, 8)], "https://image.tmdb.org/t/p/w500/poster.jpg", "tmdb")
 
+    async def test_poster_studio_rejects_internal_chat_id_from_untrusted_post(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login", data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin}, allow_redirects=False,
+        )
+        response = await self.client.post(
+            "/admin/posters/reset", data={"target_ids": "-100123:7"},
+            headers={"Origin": origin}, allow_redirects=False,
+        )
+        self.assertEqual(400, response.status)
+
     async def test_poster_override_rejects_non_http_url(self):
         origin = str(self.server.make_url("/")).rstrip("/")
         await self.client.post(
