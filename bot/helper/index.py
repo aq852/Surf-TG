@@ -169,7 +169,7 @@ async def posts_public_file(posts, chat_id):
                     <h6 class="card-title">{title}</h6>
                     <span class="badge bg-warning">{type}</span>
                     <span class="badge bg-info">{size}</span>
-                    <a class="btn btn-primary btn-sm public-download-btn" href="/public/download/{chat_id}?id={message_id}">Download</a>
+                    <div class="actions"><a class="btn btn-primary btn-sm" href="/public/watch/{chat_id}?id={message_id}">Watch online</a><a class="btn btn-sm public-download-btn" href="/public/download/{chat_id}?id={message_id}">Download</a></div>
                 </div>
             </article>
         </div>

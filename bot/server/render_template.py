@@ -133,6 +133,15 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             html = ((await f.read())
                 .replace("<!-- Latest -->", database)
                 .replace("<!-- LatestQuery -->", escape(str(latest_query), quote=True)))
+    elif route == 'public_watch':
+        async with aiopen(ospath.join(tpath, 'public_watch.html'), 'r', encoding='utf-8') as f:
+            player_poster = _safe_external_url(str(poster or "")) or f"/api/thumb/{chat_id}?id={id}"
+            html = ((await f.read())
+                .replace("<!-- Filename -->", escape(str(display_title or "Video")))
+                .replace("<!-- Poster -->", player_poster)
+                .replace("<!-- ChatId -->", escape(str(chat_id).removeprefix("-100"), quote=True))
+                .replace("<!-- MessageId -->", escape(str(id), quote=True))
+                .replace("<!-- StreamToken -->", escape(str(secure_hash), quote=True)))
     elif route == 'admin_public':
         async with aiopen(ospath.join(tpath, 'admin_public.html'), 'r', encoding='utf-8') as f:
             html = await f.read()
@@ -196,7 +205,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
     elif route == 'requests':
         async with aiopen(ospath.join(tpath, 'requests.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Requests -->", html)
-    if route in {'home', 'public', 'playlist', 'index', 'profile', 'admin', 'admin_public', 'requests'}:
+    if route in {'home', 'public', 'public_watch', 'playlist', 'index', 'profile', 'admin', 'admin_public', 'requests'}:
         if not is_admin:
             html = re.sub(r'<!-- ADMIN_START -->.*?<!-- ADMIN_END -->', '', html, flags=re.DOTALL)
         else:
@@ -250,7 +259,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
         else:
             html = html.replace('<!-- TELEGRAM_START -->', '').replace('<!-- TELEGRAM_END -->', '')
     placement = {"home": "home", "index": "channel", "playlist": "collection"}.get(route, "player")
-    return _finish_page(html, theme, is_admin, await _ad_slot(is_premium or is_admin, placement), is_premium=is_premium, premium_prompt=premium_prompt, idle_timeout=route not in {'login', 'public'})
+    return _finish_page(html, theme, is_admin, await _ad_slot(is_premium or is_admin, placement), is_premium=is_premium, premium_prompt=premium_prompt, idle_timeout=route not in {'login', 'public', 'public_watch'})
 
 
 def _finish_page(html, theme, is_admin, ad_slot, *, is_premium=False, premium_prompt=False, idle_timeout=False):

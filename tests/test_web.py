@@ -499,6 +499,18 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("Member sign in", html)
         self.assertNotIn('data-idle-timeout="1800"', html)
 
+    async def test_public_watch_page_has_player_without_private_actions(self):
+        with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
+            html = await render_page(
+                7, "public-stream-token", route="public_watch", chat_id=-100123,
+                display_title="Public sample", poster="https://example.com/poster.jpg",
+            )
+        self.assertIn('<video class="player" controls', html)
+        self.assertIn("public-stream-token", html)
+        self.assertIn("Download", html)
+        self.assertNotIn("VLC playlist", html)
+        self.assertNotIn("Temporary Telegram", html)
+
     async def test_admin_can_save_manual_ad_settings(self):
         origin = str(self.server.make_url("/")).rstrip("/")
         await self.client.post(
