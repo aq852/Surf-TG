@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, patch
 
 from bot.server import web_server
 from bot.server.render_template import render_page
-from bot.server.stream_routes import _image_type
+from bot.server.stream_routes import _category_html, _image_type
 from bot.helper.security import hash_password
 
 
@@ -500,6 +500,21 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertNotIn("Selected downloads", html)
         self.assertNotIn("Download-only access", html)
         self.assertNotIn('data-idle-timeout="1800"', html)
+
+    async def test_public_page_renders_enabled_sponsor_banner(self):
+        values = {
+            "manual_ads_enabled": True,
+            "manual_ad_url": "https://example.com/offer",
+            "manual_ad_desktop_image_url": "https://example.com/banner.jpg",
+        }
+        with patch("bot.server.render_template.db.get_variable", AsyncMock(side_effect=lambda key: values.get(key))):
+            html = await render_page(None, None, route="public")
+        self.assertIn("sponsor-ad", html)
+        self.assertIn("https://example.com/banner.jpg", html)
+
+    def test_adult_categories_require_confirmation_attribute(self):
+        html = _category_html({"-100123": {"category": "18+ Adult"}}, {-100123})
+        self.assertIn('data-adult-category="18+ Adult"', html)
 
     async def test_category_view_combines_assigned_channels(self):
         origin = str(self.server.make_url("/")).rstrip("/")

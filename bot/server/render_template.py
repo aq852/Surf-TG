@@ -291,7 +291,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
             html = re.sub(r'<!-- TELEGRAM_START -->.*?<!-- TELEGRAM_END -->', '', html, flags=re.DOTALL)
         else:
             html = html.replace('<!-- TELEGRAM_START -->', '').replace('<!-- TELEGRAM_END -->', '')
-    placement = {"home": "home", "index": "channel", "playlist": "collection"}.get(route, "player")
+    placement = {"home": "home", "public": "home", "index": "channel", "playlist": "collection"}.get(route, "player")
     return _finish_page(html, theme, is_admin, await _ad_slot(is_premium or is_admin, placement), is_premium=is_premium, premium_prompt=premium_prompt, idle_timeout=route not in {'login', 'public', 'public_watch'})
 
 
@@ -311,16 +311,24 @@ def _finish_page(html, theme, is_admin, ad_slot, *, is_premium=False, premium_pr
             f'<div class="actions"><a class="btn btn-primary" href="https://t.me/{escape(Telegram.SUPPORT_USERNAME, quote=True)}" target="_blank" rel="noopener">Contact @{escape(Telegram.SUPPORT_USERNAME)}</a>'
             '<button class="btn" type="button" data-premium-close>Not now</button></div></div></div>'
         )
+    adult_modal = (
+        '<div class="adult-modal" data-adult-modal hidden role="dialog" aria-modal="true" aria-labelledby="adultTitle">'
+        '<div class="adult-modal-card"><button class="modal-close" type="button" data-adult-close aria-label="Close">Ã—</button>'
+        '<div class="eyebrow">Age-restricted category</div><h2 id="adultTitle">18+ content warning</h2>'
+        '<p class="muted">This category may contain adult material. By continuing, you confirm that you are 18 years or older and that viewing this content is legal where you live.</p>'
+        '<div class="actions"><a class="btn btn-primary" href="/" data-adult-continue>I am 18+ — Continue</a>'
+        '<button class="btn" type="button" data-adult-close>Go back</button></div></div></div>'
+    )
     return (html
         # Versioned local assets ensure phones do not keep an old responsive
         # stylesheet/script after a Koyeb deployment.
-        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.3.0"')
-        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.3.0"')
+        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.3.1"')
+        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.3.1"')
         .replace("<!-- Theme -->", theme)
         .replace("<!-- BrandName -->", safe_name)
         .replace("<!-- SiteCredit -->", safe_credit)
         .replace("<!-- AdSlot -->", ad_slot)
-        .replace('</body>', premium_modal + '</body>')
+        .replace('</body>', premium_modal + adult_modal + '</body>')
         .replace("<html ", f'<html data-theme="{theme}" ')
         .replace("<body>", f'<body data-theme="{theme}" data-base-theme="{theme}"{body_options}>')
     )

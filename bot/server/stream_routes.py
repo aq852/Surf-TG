@@ -434,6 +434,11 @@ def _category_name(value) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip())[:50]
 
 
+def _is_adult_category(value) -> bool:
+    """Treat clear adult labels as a consent-required catalog category."""
+    return bool(re.search(r"(?:\badult\b|\bnsfw\b|\b18\s*\+|\b18\s+plus\b)", _category_name(value), re.IGNORECASE))
+
+
 def _category_html(settings, channel_ids, *, public=False, active_category="") -> str:
     """Render the catalog navigation from admin-assigned channel settings."""
     categories = {}
@@ -456,8 +461,9 @@ def _category_html(settings, channel_ids, *, public=False, active_category="") -
     for _, name in sorted(categories.items(), key=lambda item: item[1].casefold()):
         query = urlencode({"category": name})
         suffix = " active" if name.casefold() == active else ""
+        adult_attribute = f' data-adult-category="{escape(name, quote=True)}"' if _is_adult_category(name) else ""
         links.append(
-            f'<a class="category-chip{suffix}" href="/?{query}">{escape(name)}</a>'
+            f'<a class="category-chip{suffix}" href="/?{query}"{adult_attribute}>{escape(name)}</a>'
         )
     return "".join(links)
 

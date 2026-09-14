@@ -75,6 +75,17 @@ document.addEventListener("DOMContentLoaded",()=>{
   document.querySelectorAll('[data-premium-close]').forEach(button=>button.addEventListener('click',closePremium));
   premiumModal?.addEventListener('click',event=>{if(event.target===premiumModal)closePremium()});
   if(body.dataset.showPremiumPrompt==='1'&&premiumModal)premiumModal.hidden=false;
+  const adultModal=document.querySelector('[data-adult-modal]');
+  const closeAdult=()=>{if(adultModal)adultModal.hidden=true};
+  document.querySelectorAll('[data-adult-category]').forEach(link=>link.addEventListener('click',event=>{
+    if(!adultModal)return;
+    event.preventDefault();
+    const continueLink=adultModal.querySelector('[data-adult-continue]');
+    if(continueLink)continueLink.href=link.href;
+    adultModal.hidden=false;
+  }));
+  document.querySelectorAll('[data-adult-close]').forEach(button=>button.addEventListener('click',closeAdult));
+  adultModal?.addEventListener('click',event=>{if(event.target===adultModal)closeAdult()});
   const timeoutSeconds=Number(body.dataset.idleTimeout||0);
   if(timeoutSeconds>0){
     let idleTimer;
