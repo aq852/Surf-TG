@@ -43,7 +43,7 @@ class UiAssetTests(unittest.TestCase):
     def test_home_has_a_latest_only_search_and_admin_has_analytics_slot(self):
         home = (ROOT / "bot/server/template/home.html").read_text(encoding="utf-8")
         admin = (ROOT / "bot/server/template/admin.html").read_text(encoding="utf-8")
-        self.assertIn('placeholder="Search releases"', home)
+        self.assertIn('placeholder="Search movies and series"', home)
         self.assertIn('name="view" value="latest"', home)
         self.assertIn("<!-- Analytics -->", admin)
         self.assertIn("Poster Studio & media editor", admin)
@@ -58,8 +58,8 @@ class UiAssetTests(unittest.TestCase):
     def test_templates_use_local_versioned_frontend_assets(self):
         from bot.server.render_template import _finish_page
         html = _finish_page('<link rel="stylesheet" href="/static/app.css"><script src="/static/app.js"></script>', "midnight", False, "")
-        self.assertIn('/static/app.css?v=3.2.8', html)
-        self.assertIn('/static/app.js?v=3.2.8', html)
+        self.assertIn('/static/app.css?v=3.2.9', html)
+        self.assertIn('/static/app.js?v=3.2.9', html)
 
 
 if __name__ == "__main__":
