@@ -85,7 +85,7 @@ async def _ad_slot(is_premium=False, placement="home"):
             if mobile_image else ""
         )
         return (
-            '<aside class="ad-slot sponsor-ad" data-sponsor-ad><span class="ad-label">Sponsored</span>'
+            '<aside class="ad-slot sponsor-ad" data-sponsor-ad>'
             f'<a href="{escape(target, quote=True)}" target="_blank" rel="nofollow sponsored noopener">'
             f'<picture>{mobile_source}<img src="{escape(desktop_image, quote=True)}" alt="Sponsored" referrerpolicy="no-referrer" data-sponsor-image></picture>'
             '</a></aside>'
@@ -161,6 +161,10 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
                 .replace("<!-- MessageId -->", escape(str(id), quote=True))
                 .replace("<!-- StreamToken -->", escape(str(secure_hash), quote=True))
                 .replace("<!-- ExternalToken -->", escape(external_token, quote=True)))
+            if not downloadable:
+                html = re.sub(r'<!-- DOWNLOAD_START -->.*?<!-- DOWNLOAD_END -->', '', html, flags=re.DOTALL)
+            else:
+                html = html.replace('<!-- DOWNLOAD_START -->', '').replace('<!-- DOWNLOAD_END -->', '')
     elif route == 'admin_public':
         async with aiopen(ospath.join(tpath, 'admin_public.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- PublicChannels -->", public_channels)
@@ -324,8 +328,8 @@ def _finish_page(html, theme, is_admin, ad_slot, *, is_premium=False, premium_pr
     return (html
         # Versioned local assets ensure phones do not keep an old responsive
         # stylesheet/script after a Koyeb deployment.
-        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.3.1"')
-        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.3.1"')
+        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.3.2"')
+        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.3.2"')
         .replace("<!-- Theme -->", theme)
         .replace("<!-- BrandName -->", safe_name)
         .replace("<!-- SiteCredit -->", safe_credit)

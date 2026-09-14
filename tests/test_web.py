@@ -511,6 +511,18 @@ class WebSmokeTests(AioHTTPTestCase):
             html = await render_page(None, None, route="public")
         self.assertIn("sponsor-ad", html)
         self.assertIn("https://example.com/banner.jpg", html)
+        self.assertNotIn('class="ad-label"', html)
+
+    async def test_public_player_renders_enabled_sponsor_banner(self):
+        values = {
+            "manual_ads_enabled": True,
+            "manual_ad_url": "https://example.com/offer",
+            "manual_ad_desktop_image_url": "https://example.com/banner.jpg",
+        }
+        with patch("bot.server.render_template.db.get_variable", AsyncMock(side_effect=lambda key: values.get(key))):
+            html = await render_page(7, "token", route="public_watch", chat_id=-100123, display_title="Public video")
+        self.assertIn("sponsor-ad", html)
+        self.assertIn("https://example.com/banner.jpg", html)
 
     def test_adult_categories_require_confirmation_attribute(self):
         html = _category_html({"-100123": {"category": "18+ Adult"}}, {-100123})
