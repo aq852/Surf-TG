@@ -93,7 +93,7 @@ async def _ad_slot(is_premium=False, placement="home"):
     return ""
 
 
-async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', analytics='', media='', media_channels='', media_query='', tmdb_query='', public_channels='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, telegram_delivery_enabled=True, channel_access='free', show_in_latest=True, public_download=False, premium_prompt=False, share_path='', share_enabled=True, latest_query='', poster=''):
+async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', analytics='', media='', media_channels='', media_query='', tmdb_query='', public_channels='', categories='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, telegram_delivery_enabled=True, channel_access='free', channel_category='', show_in_latest=True, public_download=False, premium_prompt=False, share_path='', share_enabled=True, latest_query='', latest_heading='Latest uploads', latest_description='All authorized channels', category_query='', latest_clear_path='/?view=latest', poster=''):
     tpath = ospath.join('bot', 'server', 'template')
     if route == 'login':
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
@@ -124,6 +124,12 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
                 .replace("<!-- Playlist -->", playlist)
                 .replace("<!-- Latest -->", database)
                 .replace("<!-- LatestQuery -->", escape(str(latest_query), quote=True))
+                .replace("<!-- Categories -->", categories)
+                .replace("<!-- LatestHeading -->", escape(str(latest_heading)))
+                .replace("<!-- LatestDescription -->", escape(str(latest_description)))
+                .replace("<!-- CategoryQuery -->", escape(str(category_query), quote=True))
+                .replace("<!-- LatestClearPath -->", escape(str(latest_clear_path), quote=True))
+                .replace("<!-- CategoriesHidden -->", "" if categories else "hidden")
                 .replace("<!-- ChannelsActive -->", "active" if view == "channels" else "")
                 .replace("<!-- LatestActive -->", "active" if view == "latest" else "")
                 .replace("<!-- ChannelsHidden -->", "" if view == "channels" else "hidden")
@@ -134,7 +140,13 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
         async with aiopen(ospath.join(tpath, 'public.html'), 'r', encoding='utf-8') as f:
             html = ((await f.read())
                 .replace("<!-- Latest -->", database)
-                .replace("<!-- LatestQuery -->", escape(str(latest_query), quote=True)))
+                .replace("<!-- LatestQuery -->", escape(str(latest_query), quote=True))
+                .replace("<!-- Categories -->", categories)
+                .replace("<!-- LatestHeading -->", escape(str(latest_heading)))
+                .replace("<!-- LatestDescription -->", escape(str(latest_description)))
+                .replace("<!-- CategoryQuery -->", escape(str(category_query), quote=True))
+                .replace("<!-- LatestClearPath -->", escape(str(latest_clear_path), quote=True))
+                .replace("<!-- CategoriesHidden -->", "" if categories else "hidden"))
     elif route == 'public_watch':
         async with aiopen(ospath.join(tpath, 'public_watch.html'), 'r', encoding='utf-8') as f:
             player_poster = _safe_external_url(str(poster or "")) or f"/api/thumb/{chat_id}?id={id}"
@@ -203,8 +215,22 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
                 .replace("<!-- CoverVersion -->", escape(str(cover_version), quote=True))
                 .replace("<!-- ChannelPremiumSelected -->", " selected" if channel_access == "premium" else "")
                 .replace("<!-- ChannelAccess -->", escape(str(channel_access), quote=True))
+                .replace("<!-- ChannelCategory -->", escape(str(channel_category), quote=True))
                 .replace("<!-- ShowInLatestChecked -->", " checked" if show_in_latest else "")
                 .replace("<!-- PublicDownloadChecked -->", " checked" if public_download else ""))
+            category_form = (
+                '<details class="panel admin-panel"><summary>Category</summary>'
+                '<form action="/channel/settings" method="post">'
+                f'<input type="hidden" name="chat_id" value="{escape(str(chat_id), quote=True)}">'
+                f'<input type="hidden" name="access" value="{escape(str(channel_access), quote=True)}">'
+                f'<input type="hidden" name="show_in_latest" value="{"yes" if show_in_latest else ""}">'
+                f'<input type="hidden" name="public_download" value="{"yes" if public_download else ""}">'
+                '<label>Channel category (optional)</label>'
+                f'<input class="form-control" name="category" maxlength="50" value="{escape(str(channel_category), quote=True)}" placeholder="Movies, Anime, Web Series...">'
+                '<p class="muted tiny">Channels with the same category become one combined media feed. Leave blank to keep this channel uncategorized.</p>'
+                '<button class="btn btn-primary">Save category</button></form></details>'
+            )
+            html = html.replace("<!-- ADMIN_START -->", "<!-- ADMIN_START -->" + category_form)
     elif route == 'profile':
         async with aiopen(ospath.join(tpath, 'profile.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Profile -->", html)
@@ -287,8 +313,8 @@ def _finish_page(html, theme, is_admin, ad_slot, *, is_premium=False, premium_pr
     return (html
         # Versioned local assets ensure phones do not keep an old responsive
         # stylesheet/script after a Koyeb deployment.
-        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.2.6"')
-        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.2.6"')
+        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.2.7"')
+        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.2.7"')
         .replace("<!-- Theme -->", theme)
         .replace("<!-- BrandName -->", safe_name)
         .replace("<!-- SiteCredit -->", safe_credit)

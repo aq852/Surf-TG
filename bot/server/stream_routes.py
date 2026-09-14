@@ -160,6 +160,7 @@ async def _public_channels_html():
                 '<form action="/channel/settings" method="post" class="public-channel-form">'
                 f'<input type="hidden" name="chat_id" value="{public_id}">'
                 f'<input type="hidden" name="access" value="{access}">'
+                '<input type="hidden" name="public_mode" value="yes">'
                 f'<label class="check-label"><input type="checkbox" name="public_download" value="yes"{" checked" if enabled else ""}> '
                 'Show this channel on the public homepage</label>'
                 '<button class="btn btn-primary btn-sm">Save</button></form>'
@@ -425,6 +426,40 @@ async def _channel_policy(chat_id: int):
         "access": setting.get("access", "free"),
         "show_in_latest": setting.get("show_in_latest", True) is not False,
         "public_download": setting.get("public_download", False) is True,
+        "category": str(setting.get("category", "") or "").strip(),
+    }
+
+
+def _category_name(value) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip())[:50]
+
+
+def _category_html(settings, channel_ids, *, public=False) -> str:
+    """Render category links from admin-assigned channel settings."""
+    categories = {}
+    for channel_id in channel_ids:
+        setting = settings.get(str(channel_id), {})
+        name = _category_name(setting.get("category"))
+        if not name:
+            continue
+        if public and (setting.get("public_download") is not True or setting.get("access", "free") == "premium"):
+            continue
+        categories.setdefault(name.casefold(), name)
+    return "".join(
+        f'<a class="category-chip" href="/?{urlencode({"category": name})}">{escape(name)}</a>'
+        for _, name in sorted(categories.items(), key=lambda item: item[1].casefold())
+    )
+
+
+def _category_channels(settings, channel_ids, category, *, public=False):
+    requested = _category_name(category).casefold()
+    return {
+        int(channel_id) for channel_id in channel_ids
+        if _category_name(settings.get(str(channel_id), {}).get("category")).casefold() == requested
+        and (not public or (
+            settings.get(str(channel_id), {}).get("public_download") is True
+            and settings.get(str(channel_id), {}).get("access", "free") != "premium"
+        ))
     }
 
 
@@ -889,14 +924,18 @@ async def channel_settings_route(request):
     access = str(data.get("access", existing_policy["access"]))
     if access not in {"free", "premium"}:
         raise web.HTTPBadRequest(text="Invalid channel access")
-    public_download = data.get("public_download") == "yes"
+    public_download = (
+        data.get("public_download") == "yes"
+        if data.get("public_mode") == "yes" else existing_policy["public_download"]
+    )
+    category = _category_name(data.get("category", existing_policy["category"]))
     if public_download and access == "premium":
         raise web.HTTPBadRequest(text="A Premium channel cannot be public")
     show_in_latest = (
         data.get("show_in_latest") == "yes"
         if "show_in_latest" in data else existing_policy["show_in_latest"]
     )
-    await db.update_channel_settings(chat_id, access, show_in_latest, public_download)
+    await db.update_channel_settings(chat_id, access, show_in_latest, public_download, category)
     raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
 
 
@@ -1092,10 +1131,6 @@ async def home_route(request):
             playlists = await db.get_Dbfolder()
             authorized_ids = await get_authorized_chat_ids()
             latest_query = str(request.query.get("q", "")).strip()
-            latest = await (
-                db.search_latest_tgfiles(authorized_ids, latest_query, per_page=200)
-                if latest_query else db.list_latest_tgfiles(authorized_ids, per_page=200)
-            )
             admin = is_admin(session)
             role_label = "Administrator" if admin else ("Premium" if account_tier(session) == "premium" else "Viewer")
             tier = account_tier(session)
@@ -1103,6 +1138,14 @@ async def home_route(request):
                 channel_settings = await db.get_channel_settings_map(authorized_ids)
             except Exception:
                 channel_settings = {}
+            category = _category_name(request.query.get("category"))
+            category_ids = _category_channels(channel_settings, authorized_ids, category) if category else set(authorized_ids)
+            if category and not category_ids:
+                raise web.HTTPNotFound(text="Category not found")
+            latest = await (
+                db.search_latest_tgfiles(category_ids, latest_query, per_page=200)
+                if latest_query else db.list_latest_tgfiles(category_ids, per_page=200)
+            )
             phtml = await posts_chat(channels, channel_settings, is_admin=admin, user_tier=tier)
             dhtml = await post_playlist(playlists, is_admin=admin, user_tier=tier)
             latest = [
@@ -1118,7 +1161,8 @@ async def home_route(request):
                 for post in latest
             ])
             accounts = await _users_html() if admin else ""
-            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, database=latest_html, accounts=accounts, is_admin=admin, account_role=role_label, display_title=request.query.get("view", "latest"), is_premium=tier == "premium", premium_prompt=request.query.get("premium") == "1", latest_query=latest_query), content_type='text/html')
+            clear_path = f'/?{urlencode({"view": "latest", "category": category})}' if category else '/?view=latest'
+            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, database=latest_html, accounts=accounts, categories=_category_html(channel_settings, authorized_ids), is_admin=admin, account_role=role_label, display_title="latest" if category else request.query.get("view", "latest"), is_premium=tier == "premium", premium_prompt=request.query.get("premium") == "1", latest_query=latest_query, latest_heading=category or "Latest uploads", latest_description=(f"{category} category" if category else "All authorized channels"), category_query=category, latest_clear_path=clear_path), content_type='text/html')
         except web.HTTPException:
             raise
         except Exception as e:
@@ -1127,15 +1171,18 @@ async def home_route(request):
     try:
         authorized_ids = await get_authorized_chat_ids()
         latest_query = str(request.query.get("q", "")).strip()
-        latest = await (
-            db.search_latest_tgfiles(authorized_ids, latest_query, per_page=200)
-            if latest_query else db.list_latest_tgfiles(authorized_ids, per_page=200)
-        )
         settings = await db.get_channel_settings_map(authorized_ids)
+        category = _category_name(request.query.get("category"))
+        category_ids = _category_channels(settings, authorized_ids, category, public=True) if category else set(authorized_ids)
+        if category and not category_ids:
+            raise web.HTTPNotFound(text="Category not found")
+        latest = await (
+            db.search_latest_tgfiles(category_ids, latest_query, per_page=200)
+            if latest_query else db.list_latest_tgfiles(category_ids, per_page=200)
+        )
         public_posts = [
             post for post in latest
             if settings.get(str(post["chat_id"]), {}).get("public_download", False) is True
-            and settings.get(str(post["chat_id"]), {}).get("show_in_latest", True) is not False
             and settings.get(str(post["chat_id"]), {}).get("access", "free") != "premium"
             and post.get("access", "free") != "premium"
             and post.get("downloadable", True)
@@ -1144,7 +1191,7 @@ async def home_route(request):
             await posts_public_file([post], int(post["chat_id"])) for post in public_posts
         ])
         return web.Response(
-            text=await render_page(None, None, route="public", database=public_html, latest_query=latest_query),
+            text=await render_page(None, None, route="public", database=public_html, categories=_category_html(settings, authorized_ids, public=True), latest_query=latest_query, latest_heading=category or "Latest uploads", latest_description=(f"{category} category" if category else "Free downloads"), category_query=category, latest_clear_path=(f'/?{urlencode({"category": category})}' if category else '/')),
             content_type="text/html",
         )
     except web.HTTPException:
@@ -1232,7 +1279,7 @@ async def _render_channel(request, chat_id: int, chat_title: str, query: str | N
                 None, None, route='index', html=phtml, msg=title,
                 chat_id=str(chat_id).removeprefix("-100"), channel_path=channel_path(chat_id, chat_title),
                 cover_version=request.query.get("cover", ""), is_admin=admin, account_role=role_label, is_premium=tier == "premium",
-                channel_access=policy["access"], show_in_latest=policy["show_in_latest"], public_download=policy["public_download"],
+                channel_access=policy["access"], channel_category=policy["category"], show_in_latest=policy["show_in_latest"], public_download=policy["public_download"],
             ), content_type='text/html'
         )
     except web.HTTPException:

@@ -443,7 +443,7 @@ class Database:
         )
         return {str(row["_id"]): row for row in rows}
 
-    async def update_channel_settings(self, chat_id, access, show_in_latest, public_download=False):
+    async def update_channel_settings(self, chat_id, access, show_in_latest, public_download=False, category=""):
         result = await asyncio.to_thread(
             self.channel_settings.update_one,
             {"_id": str(chat_id)},
@@ -451,6 +451,7 @@ class Database:
                 "access": access,
                 "show_in_latest": bool(show_in_latest),
                 "public_download": bool(public_download),
+                "category": str(category or "").strip(),
                 "updated_at": datetime.now(timezone.utc),
             }},
             upsert=True,

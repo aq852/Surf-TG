@@ -494,12 +494,63 @@ class WebSmokeTests(AioHTTPTestCase):
                 None, None, route="public",
                 database='<a href="/public/download/123?id=7">Download</a>',
             )
-        self.assertIn("Public uploads", html)
+        self.assertNotIn("Public uploads", html)
         self.assertIn('/public/download/123?id=7', html)
         self.assertIn(">Sign in<", html)
         self.assertNotIn("Selected downloads", html)
         self.assertNotIn("Download-only access", html)
         self.assertNotIn('data-idle-timeout="1800"', html)
+
+    async def test_category_view_combines_assigned_channels(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login", data={"username": "viewer", "password": "viewer-safe-password"},
+            headers={"Origin": origin}, allow_redirects=False,
+        )
+        posts = [
+            {"chat_id": "-100123", "msg_id": "7", "title": "Movie upload", "size": "1 GB", "type": "video/mp4"},
+            {"chat_id": "-100456", "msg_id": "8", "title": "Series upload", "size": "1 GB", "type": "video/mp4"},
+        ]
+        settings = {
+            "-100123": {"category": "Movies", "access": "free"},
+            "-100456": {"category": "Series", "access": "free"},
+        }
+        with (
+            patch("bot.server.stream_routes.get_chats", AsyncMock(return_value=[])),
+            patch("bot.server.stream_routes.db.get_Dbfolder", AsyncMock(return_value=[])),
+            patch("bot.server.stream_routes.get_authorized_chat_ids", AsyncMock(return_value={-100123, -100456})),
+            patch("bot.server.stream_routes.db.get_channel_settings_map", AsyncMock(return_value=settings)),
+            patch(
+                "bot.server.stream_routes.db.list_latest_tgfiles",
+                AsyncMock(side_effect=lambda ids, **_: [post for post in posts if int(post["chat_id"]) in ids]),
+            ) as latest,
+            patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)),
+        ):
+            response = await self.client.get("/?category=Movies")
+        html = await response.text()
+        self.assertEqual(200, response.status)
+        self.assertIn("Movies category", html)
+        self.assertIn("Movie upload", html)
+        self.assertNotIn("Series upload", html)
+        self.assertEqual({-100123}, set(latest.await_args.args[0]))
+
+    async def test_admin_can_assign_channel_category(self):
+        origin = str(self.server.make_url("/")).rstrip("/")
+        await self.client.post(
+            "/login", data={"username": "admin", "password": "admin-safe-password"},
+            headers={"Origin": origin}, allow_redirects=False,
+        )
+        with (
+            patch("bot.server.stream_routes.get_authorized_chat_ids", AsyncMock(return_value={-100123})),
+            patch("bot.server.stream_routes.db.get_channel_settings", AsyncMock(return_value={"access": "free", "show_in_latest": True, "category": ""})),
+            patch("bot.server.stream_routes.db.update_channel_settings", AsyncMock(return_value=True)) as save,
+        ):
+            response = await self.client.post(
+                "/channel/settings", data={"chat_id": "123", "access": "free", "show_in_latest": "yes", "category": "  Movies  "},
+                headers={"Origin": origin}, allow_redirects=False,
+            )
+        self.assertEqual(302, response.status)
+        save.assert_awaited_once_with(-100123, "free", True, False, "Movies")
 
     async def test_login_page_explains_where_to_get_credentials(self):
         html = await render_page(None, None, route="login")
