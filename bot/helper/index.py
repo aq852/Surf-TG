@@ -154,7 +154,7 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free", return_to
 
 
 async def posts_public_file(posts, chat_id):
-    """Render intentionally-public, download-only cards.
+    """Render intentionally-public media cards.
 
     These cards never contain a watch URL or a reusable stream token.  The
     download endpoint checks the current channel/file policy again before it
@@ -163,14 +163,15 @@ async def posts_public_file(posts, chat_id):
     template = """
         <div class="col">
             <article class="card text-white bg-primary mb-3 public-file-card">
-                <img src="/static/placeholder.svg" class="lzy_img card-img-top rounded-top"
-                    data-src="{img}" alt="{title}">
-                <div class="card-body p-1">
-                    <h6 class="card-title">{title}</h6>
-                    <span class="badge bg-warning">{type}</span>
-                    <span class="badge bg-info">{size}</span>
-                    <div class="actions"><a class="btn btn-primary btn-sm" href="/public/watch/{chat_id}?id={message_id}">Watch online</a><a class="btn btn-sm public-download-btn" href="/public/download/{chat_id}?id={message_id}">Download</a></div>
-                </div>
+                <a class="public-file-open" href="/public/watch/{chat_id}?id={message_id}" aria-label="Open {title}">
+                    <img src="/static/placeholder.svg" class="lzy_img card-img-top rounded-top"
+                        data-src="{img}" alt="{title}">
+                    <div class="card-body p-1">
+                        <h6 class="card-title">{title}</h6>
+                        <span class="badge bg-warning">{type}</span>
+                        <span class="badge bg-info">{size}</span>
+                    </div>
+                </a>
             </article>
         </div>
     """

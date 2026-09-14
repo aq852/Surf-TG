@@ -499,6 +499,12 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("Member sign in", html)
         self.assertNotIn('data-idle-timeout="1800"', html)
 
+    async def test_login_page_explains_where_to_get_credentials(self):
+        html = await render_page(None, None, route="login")
+        self.assertIn("Get login details", html)
+        self.assertIn("Browse public downloads", html)
+        self.assertIn("https://t.me/AK_ownerbot", html)
+
     async def test_public_watch_page_has_player_without_private_actions(self):
         with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
             html = await render_page(

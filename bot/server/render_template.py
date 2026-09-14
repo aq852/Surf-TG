@@ -98,7 +98,9 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
     if route == 'login':
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
             error = f'<div class="alert">{escape(msg)}</div>' if msg else ''
-            html = (await f.read()).replace("<!-- ErrorBlock -->", error)
+            html = ((await f.read())
+                .replace("<!-- ErrorBlock -->", error)
+                .replace("<!-- SupportUsername -->", escape(Telegram.SUPPORT_USERNAME, quote=True)))
             return _finish_page(html, "midnight", False, "")
     try:
         theme = await db.get_variable('theme')
@@ -281,8 +283,8 @@ def _finish_page(html, theme, is_admin, ad_slot, *, is_premium=False, premium_pr
     return (html
         # Versioned local assets ensure phones do not keep an old responsive
         # stylesheet/script after a Koyeb deployment.
-        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.2.5"')
-        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.2.5"')
+        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.2.6"')
+        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.2.6"')
         .replace("<!-- Theme -->", theme)
         .replace("<!-- BrandName -->", safe_name)
         .replace("<!-- SiteCredit -->", safe_credit)
