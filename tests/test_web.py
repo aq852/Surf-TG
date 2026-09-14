@@ -155,7 +155,7 @@ class WebSmokeTests(AioHTTPTestCase):
                 allow_redirects=False,
             )
         self.assertEqual(302, response.status)
-        response = await self.client.get("/", allow_redirects=False)
+        response = await self.client.get("/profile", allow_redirects=False)
         self.assertEqual(302, response.status)
         self.assertEqual("/login", response.headers["Location"])
 
@@ -487,6 +487,17 @@ class WebSmokeTests(AioHTTPTestCase):
         with patch("bot.server.render_template.db.get_variable", AsyncMock(side_effect=lambda key: values.get(key))):
             html = await render_page(None, None, route="home", html="", playlist="", is_premium=True)
         self.assertNotIn("sponsor-ad", html)
+
+    async def test_public_page_is_download_only(self):
+        with patch("bot.server.render_template.db.get_variable", AsyncMock(return_value=None)):
+            html = await render_page(
+                None, None, route="public",
+                database='<a href="/public/download/123?id=7">Download</a>',
+            )
+        self.assertIn("Public downloads", html)
+        self.assertIn('/public/download/123?id=7', html)
+        self.assertIn("Member sign in", html)
+        self.assertNotIn('data-idle-timeout="1800"', html)
 
     async def test_admin_can_save_manual_ad_settings(self):
         origin = str(self.server.make_url("/")).rstrip("/")

@@ -93,7 +93,7 @@ async def _ad_slot(is_premium=False, placement="home"):
     return ""
 
 
-async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', analytics='', media='', media_channels='', media_query='', tmdb_query='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, telegram_delivery_enabled=True, channel_access='free', show_in_latest=True, premium_prompt=False, share_path='', share_enabled=True, latest_query='', poster=''):
+async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', analytics='', media='', media_channels='', media_query='', tmdb_query='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, telegram_delivery_enabled=True, channel_access='free', show_in_latest=True, public_download=False, premium_prompt=False, share_path='', share_enabled=True, latest_query='', poster=''):
     tpath = ospath.join('bot', 'server', 'template')
     if route == 'login':
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
@@ -128,6 +128,14 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
                 .replace("<!-- LatestHidden -->", "" if view == "latest" else "hidden"))
             if not is_admin and Telegram.HIDE_CHANNEL:
                 html += hide_channel
+    elif route == 'public':
+        async with aiopen(ospath.join(tpath, 'public.html'), 'r', encoding='utf-8') as f:
+            html = ((await f.read())
+                .replace("<!-- Latest -->", database)
+                .replace("<!-- LatestQuery -->", escape(str(latest_query), quote=True)))
+    elif route == 'admin_public':
+        async with aiopen(ospath.join(tpath, 'admin_public.html'), 'r', encoding='utf-8') as f:
+            html = await f.read()
     elif route == 'admin':
         try:
             auth_channels = await db.get_variable('auth_channel')
@@ -165,6 +173,10 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
                 .replace("<!-- MediaQuery -->", escape(str(media_query or ""), quote=True))
                 .replace("<!-- TmdbQuery -->", escape(str(tmdb_query or ""), quote=True))
                 .replace("<!-- AuthChannels -->", escape(str(auth_channels), quote=True)))
+        html = html.replace(
+            '<h1>Admin dashboard</h1>',
+            '<h1>Admin dashboard</h1><a class="btn btn-sm" href="/admin/public-access">Public download access</a>',
+        )
         html = _apply_admin_settings(html, preferences, downloads_enabled, hide_native_download, secure_link_copy_enabled, telegram_delivery_enabled, telegram_delivery_protected)
     elif route == 'playlist':
         async with aiopen(ospath.join(tpath, 'playlist.html'), 'r', encoding='utf-8') as f:
@@ -175,14 +187,16 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
                 .replace("<!-- Chat_id -->", escape(str(chat_id), quote=True)).replace("<!-- ChannelPath -->", escape(str(channel_path), quote=True))
                 .replace("<!-- CoverVersion -->", escape(str(cover_version), quote=True))
                 .replace("<!-- ChannelPremiumSelected -->", " selected" if channel_access == "premium" else "")
-                .replace("<!-- ShowInLatestChecked -->", " checked" if show_in_latest else ""))
+                .replace("<!-- ChannelAccess -->", escape(str(channel_access), quote=True))
+                .replace("<!-- ShowInLatestChecked -->", " checked" if show_in_latest else "")
+                .replace("<!-- PublicDownloadChecked -->", " checked" if public_download else ""))
     elif route == 'profile':
         async with aiopen(ospath.join(tpath, 'profile.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Profile -->", html)
     elif route == 'requests':
         async with aiopen(ospath.join(tpath, 'requests.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- Requests -->", html)
-    if route in {'home', 'playlist', 'index', 'profile', 'admin', 'requests'}:
+    if route in {'home', 'public', 'playlist', 'index', 'profile', 'admin', 'admin_public', 'requests'}:
         if not is_admin:
             html = re.sub(r'<!-- ADMIN_START -->.*?<!-- ADMIN_END -->', '', html, flags=re.DOTALL)
         else:
@@ -236,7 +250,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
         else:
             html = html.replace('<!-- TELEGRAM_START -->', '').replace('<!-- TELEGRAM_END -->', '')
     placement = {"home": "home", "index": "channel", "playlist": "collection"}.get(route, "player")
-    return _finish_page(html, theme, is_admin, await _ad_slot(is_premium or is_admin, placement), is_premium=is_premium, premium_prompt=premium_prompt, idle_timeout=route != 'login')
+    return _finish_page(html, theme, is_admin, await _ad_slot(is_premium or is_admin, placement), is_premium=is_premium, premium_prompt=premium_prompt, idle_timeout=route not in {'login', 'public'})
 
 
 def _finish_page(html, theme, is_admin, ad_slot, *, is_premium=False, premium_prompt=False, idle_timeout=False):

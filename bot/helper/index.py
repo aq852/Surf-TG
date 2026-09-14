@@ -151,3 +151,43 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free", return_to
             + ('<span class="badge">Locked</span>' if not entitled else '')
         ))
     return ''.join(cards)
+
+
+async def posts_public_file(posts, chat_id):
+    """Render intentionally-public, download-only cards.
+
+    These cards never contain a watch URL or a reusable stream token.  The
+    download endpoint checks the current channel/file policy again before it
+    issues a short-lived download token.
+    """
+    template = """
+        <div class="col">
+            <article class="card text-white bg-primary mb-3 public-file-card">
+                <img src="/static/placeholder.svg" class="lzy_img card-img-top rounded-top"
+                    data-src="{img}" alt="{title}">
+                <div class="card-body p-1">
+                    <h6 class="card-title">{title}</h6>
+                    <span class="badge bg-warning">{type}</span>
+                    <span class="badge bg-info">{size}</span>
+                    <a class="btn btn-primary btn-sm public-download-btn" href="/public/download/{chat_id}?id={message_id}">Download</a>
+                </div>
+            </article>
+        </div>
+    """
+    cards = []
+    public_id = str(chat_id).removeprefix("-100")
+    for post in posts:
+        if post.get("access", "free") == "premium" or not post.get("downloadable", True):
+            continue
+        message_id = int(post["msg_id"])
+        title = str(post.get("display_title") or post["title"])
+        poster = str(post.get("poster_url") or f"/api/thumb/{chat_id}?id={message_id}")
+        cards.append(template.format(
+            chat_id=public_id,
+            message_id=message_id,
+            img=escape(poster, quote=True),
+            title=escape(title),
+            size=escape(str(post.get("size", ""))),
+            type=escape(str(post.get("type", "file"))),
+        ))
+    return "".join(cards)
