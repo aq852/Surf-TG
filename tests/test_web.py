@@ -527,7 +527,7 @@ class WebSmokeTests(AioHTTPTestCase):
             {"chat_id": "-100456", "msg_id": "8", "title": "Series upload", "size": "1 GB", "type": "video/mp4"},
         ]
         settings = {
-            "-100123": {"category": "Movies", "access": "free"},
+            "-100123": {"category": "Movies", "access": "free", "show_in_latest": False},
             "-100456": {"category": "Series", "access": "free"},
         }
         with (
@@ -559,7 +559,7 @@ class WebSmokeTests(AioHTTPTestCase):
         )
         with (
             patch("bot.server.stream_routes.get_authorized_chat_ids", AsyncMock(return_value={-100123})),
-            patch("bot.server.stream_routes.db.get_channel_settings", AsyncMock(return_value={"access": "free", "show_in_latest": True, "category": ""})),
+            patch("bot.server.stream_routes.db.get_channel_settings", AsyncMock(return_value={"access": "free", "show_in_latest": True, "category": "", "downloads_enabled": True})),
             patch("bot.server.stream_routes.db.update_channel_settings", AsyncMock(return_value=True)) as save,
         ):
             response = await self.client.post(
@@ -567,7 +567,7 @@ class WebSmokeTests(AioHTTPTestCase):
                 headers={"Origin": origin}, allow_redirects=False,
             )
         self.assertEqual(302, response.status)
-        save.assert_awaited_once_with(-100123, "free", True, False, "Movies")
+        save.assert_awaited_once_with(-100123, "free", True, False, "Movies", True)
 
     async def test_login_page_explains_where_to_get_credentials(self):
         html = await render_page(None, None, route="login")

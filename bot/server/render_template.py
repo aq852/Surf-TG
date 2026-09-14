@@ -93,7 +93,7 @@ async def _ad_slot(is_premium=False, placement="home"):
     return ""
 
 
-async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', analytics='', media='', media_channels='', media_query='', tmdb_query='', public_channels='', categories='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, telegram_delivery_enabled=True, channel_access='free', channel_category='', show_in_latest=True, public_download=False, premium_prompt=False, share_path='', share_enabled=True, latest_query='', latest_heading='Latest uploads', latest_description='All authorized channels', category_query='', latest_clear_path='/?view=latest', poster=''):
+async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', analytics='', media='', media_channels='', media_query='', tmdb_query='', public_channels='', categories='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, telegram_delivery_enabled=True, channel_access='free', channel_category='', show_in_latest=True, public_download=False, channel_downloads_enabled=True, premium_prompt=False, share_path='', share_enabled=True, latest_query='', latest_heading='Latest uploads', latest_description='All authorized channels', category_query='', latest_clear_path='/?view=latest', poster=''):
     tpath = ospath.join('bot', 'server', 'template')
     if route == 'login':
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
@@ -218,6 +218,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
                 .replace("<!-- ChannelAccess -->", escape(str(channel_access), quote=True))
                 .replace("<!-- ChannelCategory -->", escape(str(channel_category), quote=True))
                 .replace("<!-- ShowInLatestChecked -->", " checked" if show_in_latest else "")
+                .replace("<!-- ChannelDownloadsChecked -->", " checked" if channel_downloads_enabled else "")
                 .replace("<!-- PublicDownloadChecked -->", " checked" if public_download else ""))
             category_form = (
                 '<details class="panel admin-panel"><summary>Category</summary>'
@@ -226,9 +227,10 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
                 f'<input type="hidden" name="access" value="{escape(str(channel_access), quote=True)}">'
                 f'<input type="hidden" name="show_in_latest" value="{"yes" if show_in_latest else ""}">'
                 f'<input type="hidden" name="public_download" value="{"yes" if public_download else ""}">'
+                f'<input type="hidden" name="channel_downloads" value="{"yes" if channel_downloads_enabled else ""}">'
                 '<label>Channel category (optional)</label>'
                 f'<input class="form-control" name="category" maxlength="50" value="{escape(str(channel_category), quote=True)}" placeholder="Movies, Anime, Web Series...">'
-                '<p class="muted tiny">Channels with the same category become one combined media feed. Leave blank to keep this channel uncategorized.</p>'
+                '<p class="muted tiny">Channels with the same category become one combined media feed. Category pages include this channel even when Latest releases is off.</p>'
                 '<button class="btn btn-primary">Save category</button></form></details>'
             )
             html = html.replace("<!-- ADMIN_START -->", "<!-- ADMIN_START -->" + category_form)

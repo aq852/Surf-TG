@@ -427,6 +427,7 @@ async def _channel_policy(chat_id: int):
         "show_in_latest": setting.get("show_in_latest", True) is not False,
         "public_download": setting.get("public_download", False) is True,
         "category": str(setting.get("category", "") or "").strip(),
+        "downloads_enabled": setting.get("downloads_enabled", True) is not False,
     }
 
 
@@ -952,7 +953,11 @@ async def channel_settings_route(request):
         data.get("show_in_latest") == "yes"
         if "show_in_latest" in data else existing_policy["show_in_latest"]
     )
-    await db.update_channel_settings(chat_id, access, show_in_latest, public_download, category)
+    downloads_enabled = (
+        data.get("channel_downloads") == "yes"
+        if "channel_downloads" in data else existing_policy["downloads_enabled"]
+    )
+    await db.update_channel_settings(chat_id, access, show_in_latest, public_download, category, downloads_enabled)
     raise web.HTTPFound(f'/channel/{str(chat_id).removeprefix("-100")}')
 
 
@@ -1167,7 +1172,7 @@ async def home_route(request):
             dhtml = await post_playlist(playlists, is_admin=admin, user_tier=tier)
             latest = [
                 post for post in latest
-                if channel_settings.get(str(post["chat_id"]), {}).get("show_in_latest", True) is not False
+                if (category or channel_settings.get(str(post["chat_id"]), {}).get("show_in_latest", True) is not False)
                 and (admin or tier == "premium" or (
                     post.get("access", "free") != "premium"
                     and channel_settings.get(str(post["chat_id"]), {}).get("access", "free") != "premium"
@@ -1203,6 +1208,7 @@ async def home_route(request):
             and settings.get(str(post["chat_id"]), {}).get("access", "free") != "premium"
             and post.get("access", "free") != "premium"
             and post.get("downloadable", True)
+            and (category or settings.get(str(post["chat_id"]), {}).get("show_in_latest", True) is not False)
         ][:48]
         public_html = "".join([
             await posts_public_file([post], int(post["chat_id"])) for post in public_posts
@@ -1297,6 +1303,7 @@ async def _render_channel(request, chat_id: int, chat_title: str, query: str | N
                 chat_id=str(chat_id).removeprefix("-100"), channel_path=channel_path(chat_id, chat_title),
                 cover_version=request.query.get("cover", ""), is_admin=admin, account_role=role_label, is_premium=tier == "premium",
                 channel_access=policy["access"], channel_category=policy["category"], show_in_latest=policy["show_in_latest"], public_download=policy["public_download"],
+                channel_downloads_enabled=policy["downloads_enabled"],
             ), content_type='text/html'
         )
     except web.HTTPException:
@@ -1356,7 +1363,7 @@ async def get_thumbnail(request):
     if public_request:
         policy = await _channel_policy(chat_id)
         message_id = request.query.get('id')
-        if not (policy["public_download"] and policy["show_in_latest"] and policy["access"] != "premium" and message_id):
+        if not (policy["public_download"] and policy["access"] != "premium" and message_id):
             raise web.HTTPUnauthorized(text="Login required")
         record = await db.get_tgfile(chat_id, int(message_id))
         if not record or record.get("access", "free") == "premium" or not record.get("downloadable", True):
@@ -1385,7 +1392,8 @@ async def stream_handler_watch(request: web.Request):
         try:
             chat_id = public_chat_id(request.match_info['chat_id'])
             await require_authorized_chat(chat_id)
-            if (await _channel_policy(chat_id))["access"] == "premium" and not _premium_entitled(session):
+            policy = await _channel_policy(chat_id)
+            if policy["access"] == "premium" and not _premium_entitled(session):
                 raise web.HTTPForbidden(text="Premium membership required")
             message_id = request.query.get('id')
             stream_token = request.query.get('token', '')
@@ -1412,7 +1420,11 @@ async def stream_handler_watch(request: web.Request):
             except Exception:
                 telegram_delivery_enabled = None
             share_enabled = share_enabled is not False
-            downloadable = (bool(record.get("downloadable", True)) if record else True) and downloads_enabled is not False
+            downloadable = (
+                (bool(record.get("downloadable", True)) if record else True)
+                and policy["downloads_enabled"]
+                and downloads_enabled is not False
+            )
             display_title = (record.get("display_title") or record.get("title")) if record else ""
             share_path = ""
             if share_enabled:
@@ -1462,7 +1474,7 @@ async def public_download_route(request):
     chat_id = public_chat_id(request.match_info['chat_id'])
     await require_authorized_chat(chat_id)
     policy = await _channel_policy(chat_id)
-    if not (policy["public_download"] and policy["show_in_latest"] and policy["access"] != "premium"):
+    if not (policy["public_download"] and policy["access"] != "premium" and policy["downloads_enabled"]):
         raise web.HTTPForbidden(text="This channel is not available for public downloads")
     try:
         message_id = int(request.query.get("id", ""))
@@ -1491,7 +1503,7 @@ async def public_watch_route(request):
     chat_id = public_chat_id(request.match_info['chat_id'])
     await require_authorized_chat(chat_id)
     policy = await _channel_policy(chat_id)
-    if not (policy["public_download"] and policy["show_in_latest"] and policy["access"] != "premium"):
+    if not (policy["public_download"] and policy["access"] != "premium"):
         raise web.HTTPForbidden(text="This channel is not available for public playback")
     try:
         message_id = int(request.query.get("id", ""))
@@ -1509,6 +1521,7 @@ async def public_watch_route(request):
         text=await render_page(
             message_id, token, route="public_watch", chat_id=chat_id,
             display_title=title, poster=record.get("poster_url", ""),
+            downloadable=policy["downloads_enabled"] and bool(record.get("downloadable", True)),
         ),
         content_type="text/html",
     )
@@ -1549,7 +1562,7 @@ async def media_streamer(request: web.Request, chat_id: int, id: int, stream_tok
     if not session.get("user") and not external_vlc and not public_stream and not public_external and not (public_download and wants_download):
         raise web.HTTPUnauthorized(text="Login required")
     policy = await _channel_policy(chat_id)
-    if (public_download or public_stream or public_external) and not (policy["public_download"] and policy["show_in_latest"] and policy["access"] != "premium"):
+    if (public_download or public_stream or public_external) and not (policy["public_download"] and policy["access"] != "premium"):
         raise web.HTTPForbidden(text="This channel is not available for public access")
     if policy["access"] == "premium" and not (external_vlc or _premium_entitled(session)):
         raise web.HTTPForbidden(text="Premium membership required")
@@ -1562,6 +1575,8 @@ async def media_streamer(request: web.Request, chat_id: int, id: int, stream_tok
         raise web.HTTPForbidden(text="This file is not available for public access")
     if wants_download and claim.scope not in {"download", "public_download"}:
         raise web.HTTPForbidden(text="This link is not authorized for download")
+    if wants_download and not policy["downloads_enabled"]:
+        raise web.HTTPForbidden(text="Downloads are disabled for this channel")
     if public_download and not wants_download:
         raise web.HTTPForbidden(text="This link is download-only")
     range_header = request.headers.get("Range")
