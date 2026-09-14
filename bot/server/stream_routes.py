@@ -1202,12 +1202,14 @@ async def home_route(request):
             db.search_latest_tgfiles(category_ids, latest_query, per_page=200)
             if latest_query else db.list_latest_tgfiles(category_ids, per_page=200)
         )
+        # Visibility and downloads are intentionally independent.  A file whose
+        # download button is disabled can still be a public, stream-only item.
+        # Filtering it here made an enabled public category appear empty.
         public_posts = [
             post for post in latest
             if settings.get(str(post["chat_id"]), {}).get("public_download", False) is True
             and settings.get(str(post["chat_id"]), {}).get("access", "free") != "premium"
             and post.get("access", "free") != "premium"
-            and post.get("downloadable", True)
             and (category or settings.get(str(post["chat_id"]), {}).get("show_in_latest", True) is not False)
         ][:48]
         public_html = "".join([
@@ -1366,7 +1368,7 @@ async def get_thumbnail(request):
         if not (policy["public_download"] and policy["access"] != "premium" and message_id):
             raise web.HTTPUnauthorized(text="Login required")
         record = await db.get_tgfile(chat_id, int(message_id))
-        if not record or record.get("access", "free") == "premium" or not record.get("downloadable", True):
+        if not record or record.get("access", "free") == "premium":
             raise web.HTTPForbidden(text="Public thumbnail unavailable")
     if message_id := request.query.get('id'):
         img = await get_image(str(chat_id), message_id)
@@ -1510,7 +1512,7 @@ async def public_watch_route(request):
     except (TypeError, ValueError) as exc:
         raise web.HTTPNotFound() from exc
     record = await db.get_tgfile(chat_id, message_id)
-    if not record or record.get("access", "free") == "premium" or not record.get("downloadable", True):
+    if not record or record.get("access", "free") == "premium":
         raise web.HTTPForbidden(text="This file is not available for public playback")
     token = create_stream_token(
         Telegram.SECRET_KEY, chat_id, message_id,
@@ -1570,7 +1572,9 @@ async def media_streamer(request: web.Request, chat_id: int, id: int, stream_tok
     if record and record.get("access", "free") == "premium" and not (external_vlc or _premium_entitled(session)):
         raise web.HTTPForbidden(text="Premium membership required")
     if (public_download or public_stream or public_external) and (
-        not record or record.get("access", "free") == "premium" or not record.get("downloadable", True)
+        not record
+        or record.get("access", "free") == "premium"
+        or (public_download and not record.get("downloadable", True))
     ):
         raise web.HTTPForbidden(text="This file is not available for public access")
     if wants_download and claim.scope not in {"download", "public_download"}:

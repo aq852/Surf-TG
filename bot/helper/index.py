@@ -156,9 +156,9 @@ async def posts_file(posts, chat_id, is_admin=False, user_tier="free", return_to
 async def posts_public_file(posts, chat_id):
     """Render intentionally-public media cards.
 
-    These cards never contain a watch URL or a reusable stream token.  The
-    download endpoint checks the current channel/file policy again before it
-    issues a short-lived download token.
+    These cards never contain a reusable stream token. A file may be public
+    and stream-only; its individual download policy is enforced on the detail
+    page and download endpoint.
     """
     template = """
         <div class="col">
@@ -178,7 +178,7 @@ async def posts_public_file(posts, chat_id):
     cards = []
     public_id = str(chat_id).removeprefix("-100")
     for post in posts:
-        if post.get("access", "free") == "premium" or not post.get("downloadable", True):
+        if post.get("access", "free") == "premium":
             continue
         message_id = int(post["msg_id"])
         title = str(post.get("display_title") or post["title"])

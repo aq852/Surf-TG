@@ -26,6 +26,7 @@ from bot.server import web_server
 from bot.server.render_template import render_page
 from bot.server.stream_routes import _category_html, _image_type
 from bot.helper.security import hash_password
+from bot.helper.index import posts_public_file
 
 
 class WebSmokeTests(AioHTTPTestCase):
@@ -599,6 +600,20 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn("Download VLC playlist", html)
         self.assertIn("Open in MX Player", html)
         self.assertNotIn("Temporary Telegram", html)
+
+    async def test_public_cards_keep_stream_only_files_visible(self):
+        html = await posts_public_file([
+            {
+                "msg_id": 7,
+                "title": "Stream-only sample",
+                "type": "video/mp4",
+                "size": "100 MB",
+                "access": "free",
+                "downloadable": False,
+            }
+        ], -100123)
+        self.assertIn("/public/watch/123?id=7", html)
+        self.assertIn("Stream-only sample", html)
 
     async def test_admin_can_save_manual_ad_settings(self):
         origin = str(self.server.make_url("/")).rstrip("/")
