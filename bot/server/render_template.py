@@ -93,7 +93,7 @@ async def _ad_slot(is_premium=False, placement="home"):
     return ""
 
 
-async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', analytics='', media='', media_channels='', media_query='', tmdb_query='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, telegram_delivery_enabled=True, channel_access='free', show_in_latest=True, public_download=False, premium_prompt=False, share_path='', share_enabled=True, latest_query='', poster=''):
+async def render_page(id, secure_hash, is_admin=False, html='', playlist='', database='', route='', redirect_url='', msg='', chat_id='', channel_path='', cover_version='', accounts='', analytics='', media='', media_channels='', media_query='', tmdb_query='', public_channels='', downloadable=True, account_role='', display_title='', is_premium=False, hide_native_download=False, telegram_delivery_enabled=True, channel_access='free', show_in_latest=True, public_download=False, premium_prompt=False, share_path='', share_enabled=True, latest_query='', poster=''):
     tpath = ospath.join('bot', 'server', 'template')
     if route == 'login':
         async with aiopen(ospath.join(tpath, 'login_v2.html'), 'r', encoding='utf-8') as f:
@@ -144,7 +144,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
                 .replace("<!-- StreamToken -->", escape(str(secure_hash), quote=True)))
     elif route == 'admin_public':
         async with aiopen(ospath.join(tpath, 'admin_public.html'), 'r', encoding='utf-8') as f:
-            html = await f.read()
+            html = (await f.read()).replace("<!-- PublicChannels -->", public_channels)
     elif route == 'admin':
         try:
             auth_channels = await db.get_variable('auth_channel')

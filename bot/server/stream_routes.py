@@ -135,6 +135,43 @@ async def _analytics_html():
     )
 
 
+async def _public_channels_html():
+    """List authorized channels so public access never requires guessing IDs."""
+    channel_ids = await get_authorized_chat_ids()
+    settings = await db.get_channel_settings_map(channel_ids)
+    names = {str(channel_id): f"Channel {str(channel_id).removeprefix('-100')}" for channel_id in channel_ids}
+    try:
+        for channel in await get_chats():
+            names[str(channel["chat-id"])] = str(channel.get("title") or names.get(str(channel["chat-id"]), "Channel"))
+    except Exception as exc:
+        logging.warning("Public channel title lookup failed: %s", exc)
+    rows = []
+    for channel_id in sorted(channel_ids):
+        setting = settings.get(str(channel_id), {})
+        access = str(setting.get("access", "free"))
+        enabled = setting.get("public_download", False) is True
+        visible = setting.get("show_in_latest", True) is not False
+        public_id = str(channel_id).removeprefix("-100")
+        title = escape(names.get(str(channel_id), public_id))
+        if access == "premium":
+            control = '<p class="muted tiny">Premium channels cannot be public. Change its channel access to Free first.</p>'
+        else:
+            control = (
+                '<form action="/channel/settings" method="post" class="public-channel-form">'
+                f'<input type="hidden" name="chat_id" value="{public_id}">'
+                f'<input type="hidden" name="access" value="{access}">'
+                f'<label class="check-label"><input type="checkbox" name="public_download" value="yes"{" checked" if enabled else ""}> '
+                'Show this channel on the public homepage</label>'
+                '<button class="btn btn-primary btn-sm">Save</button></form>'
+            )
+        rows.append(
+            '<article class="panel public-channel-card"><div class="section-head"><div><h2>'
+            f'{title}</h2><p class="muted tiny">ID: {public_id} · Latest uploads: {"On" if visible else "Off"}</p>'
+            f'</div><span class="badge">{"Public" if enabled else "Private"}</span></div>{control}</article>'
+        )
+    return "".join(rows) or '<p class="muted">No authorized channels found.</p>'
+
+
 def _admin_return_to(value=""):
     value = str(value or "")
     return value if value.startswith("/admin") else "/admin#media-editor"
@@ -1037,7 +1074,10 @@ async def admin_public_access_route(request):
     if not is_admin(session):
         raise web.HTTPForbidden(text="Administrator access required")
     return web.Response(
-        text=await render_page(None, None, route="admin_public", is_admin=True, account_role="Administrator"),
+        text=await render_page(
+            None, None, route="admin_public", is_admin=True, account_role="Administrator",
+            public_channels=await _public_channels_html(),
+        ),
         content_type="text/html",
     )
 
