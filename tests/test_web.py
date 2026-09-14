@@ -494,9 +494,11 @@ class WebSmokeTests(AioHTTPTestCase):
                 None, None, route="public",
                 database='<a href="/public/download/123?id=7">Download</a>',
             )
-        self.assertIn("Public downloads", html)
+        self.assertIn("Public uploads", html)
         self.assertIn('/public/download/123?id=7', html)
-        self.assertIn("Member sign in", html)
+        self.assertIn(">Sign in<", html)
+        self.assertNotIn("Selected downloads", html)
+        self.assertNotIn("Download-only access", html)
         self.assertNotIn('data-idle-timeout="1800"', html)
 
     async def test_login_page_explains_where_to_get_credentials(self):
@@ -514,7 +516,8 @@ class WebSmokeTests(AioHTTPTestCase):
         self.assertIn('<video class="player" controls', html)
         self.assertIn("public-stream-token", html)
         self.assertIn("Download", html)
-        self.assertNotIn("VLC playlist", html)
+        self.assertIn("Download VLC playlist", html)
+        self.assertIn("Open in MX Player", html)
         self.assertNotIn("Temporary Telegram", html)
 
     async def test_admin_can_save_manual_ad_settings(self):

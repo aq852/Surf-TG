@@ -1434,7 +1434,7 @@ async def public_watch_route(request):
     except (TypeError, ValueError) as exc:
         raise web.HTTPNotFound() from exc
     record = await db.get_tgfile(chat_id, message_id)
-    if not record or record.get("access", "free") == "premium":
+    if not record or record.get("access", "free") == "premium" or not record.get("downloadable", True):
         raise web.HTTPForbidden(text="This file is not available for public playback")
     token = create_stream_token(
         Telegram.SECRET_KEY, chat_id, message_id,
@@ -1480,19 +1480,20 @@ async def media_streamer(request: web.Request, chat_id: int, id: int, stream_tok
     external_vlc = claim.scope == "vlc"
     public_download = claim.scope == "public_download"
     public_stream = claim.scope == "public_stream"
+    public_external = claim.scope == "public_external"
     wants_download = request.query.get("download") == "1"
-    if not session.get("user") and not external_vlc and not public_stream and not (public_download and wants_download):
+    if not session.get("user") and not external_vlc and not public_stream and not public_external and not (public_download and wants_download):
         raise web.HTTPUnauthorized(text="Login required")
     policy = await _channel_policy(chat_id)
-    if (public_download or public_stream) and not (policy["public_download"] and policy["show_in_latest"] and policy["access"] != "premium"):
+    if (public_download or public_stream or public_external) and not (policy["public_download"] and policy["show_in_latest"] and policy["access"] != "premium"):
         raise web.HTTPForbidden(text="This channel is not available for public access")
     if policy["access"] == "premium" and not (external_vlc or _premium_entitled(session)):
         raise web.HTTPForbidden(text="Premium membership required")
     record = await db.get_tgfile(chat_id, id)
     if record and record.get("access", "free") == "premium" and not (external_vlc or _premium_entitled(session)):
         raise web.HTTPForbidden(text="Premium membership required")
-    if (public_download or public_stream) and (
-        not record or record.get("access", "free") == "premium" or (public_download and not record.get("downloadable", True))
+    if (public_download or public_stream or public_external) and (
+        not record or record.get("access", "free") == "premium" or not record.get("downloadable", True)
     ):
         raise web.HTTPForbidden(text="This file is not available for public access")
     if wants_download and claim.scope not in {"download", "public_download"}:

@@ -138,12 +138,16 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
     elif route == 'public_watch':
         async with aiopen(ospath.join(tpath, 'public_watch.html'), 'r', encoding='utf-8') as f:
             player_poster = _safe_external_url(str(poster or "")) or f"/api/thumb/{chat_id}?id={id}"
+            external_token = create_stream_token(
+                Telegram.SECRET_KEY, int(chat_id), int(id), ttl=Telegram.STREAM_TOKEN_TTL, scope="public_external",
+            )
             html = ((await f.read())
                 .replace("<!-- Filename -->", escape(str(display_title or "Video")))
                 .replace("<!-- Poster -->", player_poster)
                 .replace("<!-- ChatId -->", escape(str(chat_id).removeprefix("-100"), quote=True))
                 .replace("<!-- MessageId -->", escape(str(id), quote=True))
-                .replace("<!-- StreamToken -->", escape(str(secure_hash), quote=True)))
+                .replace("<!-- StreamToken -->", escape(str(secure_hash), quote=True))
+                .replace("<!-- ExternalToken -->", escape(external_token, quote=True)))
     elif route == 'admin_public':
         async with aiopen(ospath.join(tpath, 'admin_public.html'), 'r', encoding='utf-8') as f:
             html = (await f.read()).replace("<!-- PublicChannels -->", public_channels)
