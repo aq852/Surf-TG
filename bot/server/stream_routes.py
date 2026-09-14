@@ -434,8 +434,8 @@ def _category_name(value) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip())[:50]
 
 
-def _category_html(settings, channel_ids, *, public=False) -> str:
-    """Render category links from admin-assigned channel settings."""
+def _category_html(settings, channel_ids, *, public=False, active_category="") -> str:
+    """Render the catalog navigation from admin-assigned channel settings."""
     categories = {}
     for channel_id in channel_ids:
         setting = settings.get(str(channel_id), {})
@@ -445,10 +445,21 @@ def _category_html(settings, channel_ids, *, public=False) -> str:
         if public and (setting.get("public_download") is not True or setting.get("access", "free") == "premium"):
             continue
         categories.setdefault(name.casefold(), name)
-    return "".join(
-        f'<a class="category-chip" href="/?{urlencode({"category": name})}">{escape(name)}</a>'
-        for _, name in sorted(categories.items(), key=lambda item: item[1].casefold())
-    )
+    if not categories:
+        return ""
+    active = _category_name(active_category).casefold()
+    base_path = "/" if public else "/?view=latest"
+    links = [
+        '<a class="category-chip category-chip-all%s" href="%s">Latest releases</a>'
+        % (" active" if not active else "", base_path)
+    ]
+    for _, name in sorted(categories.items(), key=lambda item: item[1].casefold()):
+        query = urlencode({"category": name})
+        suffix = " active" if name.casefold() == active else ""
+        links.append(
+            f'<a class="category-chip{suffix}" href="/?{query}">{escape(name)}</a>'
+        )
+    return "".join(links)
 
 
 def _category_channels(settings, channel_ids, category, *, public=False):
@@ -1162,7 +1173,7 @@ async def home_route(request):
             ])
             accounts = await _users_html() if admin else ""
             clear_path = f'/?{urlencode({"view": "latest", "category": category})}' if category else '/?view=latest'
-            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, database=latest_html, accounts=accounts, categories=_category_html(channel_settings, authorized_ids), is_admin=admin, account_role=role_label, display_title="latest" if category else request.query.get("view", "latest"), is_premium=tier == "premium", premium_prompt=request.query.get("premium") == "1", latest_query=latest_query, latest_heading=category or "Latest uploads", latest_description=(f"{category} category" if category else "All authorized channels"), category_query=category, latest_clear_path=clear_path), content_type='text/html')
+            return web.Response(text=await render_page(None, None, route='home', html=phtml, playlist=dhtml, database=latest_html, accounts=accounts, categories=_category_html(channel_settings, authorized_ids, active_category=category), is_admin=admin, account_role=role_label, display_title="latest" if category else request.query.get("view", "latest"), is_premium=tier == "premium", premium_prompt=request.query.get("premium") == "1", latest_query=latest_query, latest_heading=category or "Latest releases", latest_description=("Selected category" if category else "Newest additions across your library"), category_query=category, latest_clear_path=clear_path), content_type='text/html')
         except web.HTTPException:
             raise
         except Exception as e:
@@ -1191,7 +1202,7 @@ async def home_route(request):
             await posts_public_file([post], int(post["chat_id"])) for post in public_posts
         ])
         return web.Response(
-            text=await render_page(None, None, route="public", database=public_html, categories=_category_html(settings, authorized_ids, public=True), latest_query=latest_query, latest_heading=category or "Latest uploads", latest_description=(f"{category} category" if category else "Free downloads"), category_query=category, latest_clear_path=(f'/?{urlencode({"category": category})}' if category else '/')),
+            text=await render_page(None, None, route="public", database=public_html, categories=_category_html(settings, authorized_ids, public=True, active_category=category), latest_query=latest_query, latest_heading=category or "Latest releases", latest_description=("Selected free category" if category else "Free downloads available now"), category_query=category, latest_clear_path=(f'/?{urlencode({"category": category})}' if category else '/')),
             content_type="text/html",
         )
     except web.HTTPException:

@@ -130,6 +130,7 @@ async def render_page(id, secure_hash, is_admin=False, html='', playlist='', dat
                 .replace("<!-- CategoryQuery -->", escape(str(category_query), quote=True))
                 .replace("<!-- LatestClearPath -->", escape(str(latest_clear_path), quote=True))
                 .replace("<!-- CategoriesHidden -->", "" if categories else "hidden")
+                .replace("<!-- ChannelDirectoryHidden -->", "" if is_admin or not categories else "hidden")
                 .replace("<!-- ChannelsActive -->", "active" if view == "channels" else "")
                 .replace("<!-- LatestActive -->", "active" if view == "latest" else "")
                 .replace("<!-- ChannelsHidden -->", "" if view == "channels" else "hidden")
@@ -313,8 +314,8 @@ def _finish_page(html, theme, is_admin, ad_slot, *, is_premium=False, premium_pr
     return (html
         # Versioned local assets ensure phones do not keep an old responsive
         # stylesheet/script after a Koyeb deployment.
-        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.2.7"')
-        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.2.7"')
+        .replace('href="/static/app.css"', 'href="/static/app.css?v=3.2.8"')
+        .replace('src="/static/app.js"', 'src="/static/app.js?v=3.2.8"')
         .replace("<!-- Theme -->", theme)
         .replace("<!-- BrandName -->", safe_name)
         .replace("<!-- SiteCredit -->", safe_credit)
